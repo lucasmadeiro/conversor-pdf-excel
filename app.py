@@ -4,12 +4,12 @@ import pdfplumber
 import streamlit as st
 
 st.set_page_config(
-    page_title="Conversor Inteligente de PDF para Excel", page_icon="📊", layout="centered"
+    page_title="Conversor de Extratos PDF para Excel", page_icon="📄", layout="centered"
 )
 
-st.title("📊 Conversor Inteligente de PDF para Excel")
+st.title("📄 Conversor de Extratos e Documentos PDF")
 st.write(
-    "Envie o seu PDF. O sistema está otimizado para detetar tabelas sem linhas visíveis (como extratos bancários)."
+    "Envie o seu PDF. O sistema extrairá o conteúdo de forma limpa e organizada por linhas, ideal para extratos bancários e editais."
 )
 
 uploaded_file = st.file_uploader(
@@ -17,84 +17,44 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file is not None:
-  st.info("A analisar o documento com extração avançada baseada em texto...")
+  st.info("A processar o documento linha a linha...")
 
   try:
     with pdfplumber.open(uploaded_file) as pdf:
-      all_dfs = []
+      linhas_extraidas = []
 
-      # Configuração essencial para documentos sem linhas desenhadas (extratos)
-      table_settings = {
-          "vertical_strategy": "text",
-          "horizontal_strategy": "text",
-          "snap_tolerance": 3,
-          "join_tolerance": 3,
-      }
-
-      for i, page in enumerate(pdf.pages):
-        # Extrai tabelas usando o posicionamento do texto
-        tables = page.extract_tables(table_settings)
-
-        for table in tables:
-          if table and len(table) > 1:
-            headers = table[0]
-            data = table[1:]
-
-            # Limpeza de cabeçalhos duplicados ou vazios
-            clean_headers = []
-            seen = {}
-            for h in headers:
-              h_str = str(h).strip() if h is not None and str(h).strip() != "" else "Coluna"
-              h_str = h_str.replace("\n", " ")
-              if h_str in seen:
-                seen[h_str] += 1
-                h_str = f"{h_str}_{seen[h_str]}"
-              else:
-                seen[h_str] = 0
-              clean_headers.append(h_str)
-
-            # Ajusta o tamanho dos dados para coincidir com os cabeçalhos, se necessário
-            cleaned_data = []
-            for row in data:
-              if len(row) == len(clean_headers):
-                cleaned_data.append(row)
-              elif len(row) < len(clean_headers):
-                # Preenche colunas em falta com vazios
-                cleaned_data.append(row + [""] * (len(clean_headers) - len(row)))
-              else:
-                # Corta excessos se houver desfasamento
-                cleaned_data.append(row[:len(clean_headers)])
-
-            if cleaned_data:
-              df_temp = pd.DataFrame(cleaned_data, columns=clean_headers)
-              all_dfs.append(df_temp)
-
-      if all_dfs:
-        st.success(f"Foram detetadas e convertidas {len(all_dfs)} tabelas com sucesso!")
+      # Varre todas as páginas do PDF recolhendo o texto organizado
+      for num_pag, page in enumerate(pdf.pages):
+        linhas_extraidas.append([f"--- PÁGINA {num_pag + 1} ---"])
         
-        # Mostra uma prévia da primeira tabela encontrada
-        st.dataframe(all_dfs[0].head(10))
+        texto_pagina = page.extract_text(layout=True)
+        if texto_pagina:
+          for linha in texto_pagina.split("\n"):
+            if linha.strip():
+              linhas_extraidas.append([linha.strip()])
+
+      if linhas_extraidas:
+        # Cria um DataFrame onde cada linha do PDF vira uma linha na Coluna A do Excel
+        df = pd.DataFrame(linhas_extraidas, columns=["Conteúdo do Extrato"])
+
+        st.success("Documento convertido com sucesso!")
+        st.dataframe(df.head(15))
 
         # Prepara o ficheiro Excel para download
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
-          # Guarda cada tabela numa folha diferente ou junta-as
-          for idx, df_t in enumerate(all_dfs):
-            sheet_name = f"Tabela_{idx+1}"[:31]  # O Excel limita o nome das folhas a 31 caracteres
-            df_t.to_excel(writer, index=False, sheet_name=sheet_name)
+          df.to_excel(writer, index=False, sheet_name="Extrato_Limpo")
 
         excel_data = output.getvalue()
 
         st.download_button(
-            label="📥 Baixar Planilha Excel (.xlsx)",
+            label="📥 Baixar Planilha Excel Limpa (.xlsx)",
             data=excel_data,
-            file_name="extrato_bancario_convertido.xlsx",
+            file_name="extrato_organizado.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
       else:
-        st.warning(
-            "Não foi possível estruturar tabelas automaticamente. Este extrato pode exigir uma leitura linha a linha."
-        )
+        st.warning("Não foi possível extrair texto legível deste PDF.")
 
   except Exception as e:
     st.error(f"Ocorreu um erro ao processar o ficheiro: {e}")
