@@ -119,6 +119,9 @@ st.markdown(
 
 # --- BARRA LATERAL ---
 with st.sidebar:
+  # Logo inserida no topo da barra lateral
+  st.image("logo.png", use_container_width=True)
+  st.markdown("---")
   st.title("Painel de Controle")
   st.markdown("---")
   st.markdown("### 💡 Como Funciona")
