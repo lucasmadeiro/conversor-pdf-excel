@@ -5,25 +5,47 @@ import streamlit as st
 
 # Configuração da Página
 st.set_page_config(
-    page_title="Conversor Profissional de PDF",
+    page_title="Conversor Profissional de PDF para Excel",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# Estilo CSS Personalizado (incluindo a remoção do texto de limite de tamanho)
+# Estilo CSS Personalizado Completo
 st.markdown(
     """
     <style>
+        /* Fundo geral da página */
         .main {
-            background-color: #fafbfc;
+            background-color: #f8fafc;
         }
+
+        /* BARRA LATERAL (Azul Claro Suave e Texto Legível) */
+        [data-testid="stSidebar"] {
+            background-color: #e0f2fe !important;
+        }
+        [data-testid="stSidebar"] h1, 
+        [data-testid="stSidebar"] h2, 
+        [data-testid="stSidebar"] h3, 
+        [data-testid="stSidebar"] p, 
+        [data-testid="stSidebar"] span, 
+        [data-testid="stSidebar"] label,
+        [data-testid="stSidebar"] div {
+            color: #0f172a !important;
+        }
+        [data-testid="stSidebar"] .stInfo {
+            background-color: #bae6fd !important;
+            color: #0369a1 !important;
+            border: none;
+        }
+
+        /* Botão de Iniciar Processamento */
         .stButton>button {
             border-radius: 8px;
             font-weight: 600;
             background-color: #2563eb;
             color: white;
-            padding: 0.5rem 1rem;
+            padding: 0.6rem 1rem;
             border: none;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
             width: 100%;
@@ -45,18 +67,44 @@ st.markdown(
             color: white !important;
         }
 
-        /* Oculta o texto de limite de tamanho (200MB per file • PDF) */
+        /* Oculta o texto de limite de tamanho padrão */
         [data-testid="stFileUploader"] small {
             display: none !important;
         }
 
-        /* Título personalizado e centralizado para a seleção */
-        .upload-label {
-            text-align: center;
+        /* Aumentar o tamanho e destaque do retângulo de upload */
+        [data-testid="stFileUploader"] section {
+            padding: 40px 20px !important;
+            border: 2px dashed #93c5fd !important;
+            border-radius: 12px !important;
+            background-color: #ffffff !important;
+        }
+
+        /* Cabeçalho Visual PDF -> Excel */
+        .converter-header {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .badge-file {
+            background-color: #ffffff;
+            padding: 10px 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            font-weight: 700;
+            font-size: 1.1rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .badge-pdf { color: #dc2626; border: 2px solid #fee2e2; }
+        .badge-excel { color: #16a34a; border: 2px solid #dcfce7; }
+        .arrow-icon {
+            font-size: 1.5rem;
             color: #2563eb;
-            font-size: 1.2rem;
-            font-weight: 600;
-            margin-bottom: 0.5rem;
+            font-weight: bold;
         }
 
         .upload-text {
@@ -71,20 +119,17 @@ st.markdown(
 
 # --- BARRA LATERAL ---
 with st.sidebar:
-  st.image(
-      "https://img.icons8.com/clouds/200/microsoft-excel-2019.png", width=100
-  )
   st.title("Painel de Controle")
   st.markdown("---")
   st.markdown("### 💡 Como Funciona")
   st.info(
-      "1. Selecione o seu ficheiro PDF.\n2. Escolha como apresentar os dados.\n3."
-      " Clique em **Iniciar Processamento**."
+      "1. Selecione o seu ficheiro PDF na área central.\n2. Escolha o formato"
+      " de apresentação dos dados.\n3. Clique em **Iniciar Processamento**."
   )
   st.markdown("---")
   st.markdown(
-      "<p style='text-align: center; color: gray; font-size: 0.8rem;'>Desenvolvido"
-      " com Streamlit & Python</p>",
+      "<p style='text-align: center; font-size: 0.8rem;'>Desenvolvido com"
+      " Streamlit & Python</p>",
       unsafe_allow_html=True,
   )
 
@@ -98,15 +143,21 @@ st.markdown(
 
 st.markdown("---")
 
+# Cabeçalho Visual: PDF -> Excel
+st.markdown(
+    """
+    <div class="converter-header">
+        <div class="badge-file badge-pdf">📄 Arquivo PDF</div>
+        <div class="arrow-icon">➔ ⚡ ➔</div>
+        <div class="badge-file badge-excel">📊 Planilha Excel</div>
+    </div>
+""",
+    unsafe_allow_html=True,
+)
+
 col1, col2, col3 = st.columns([1, 6, 1])
 
 with col2:
-  # Rótulo HTML centralizado e destacado em azul logo acima do uploader
-  st.markdown(
-      "<div class='upload-label'>📁 Selecionar um arquivo PDF</div>",
-      unsafe_allow_html=True,
-  )
-
   uploaded_file = st.file_uploader("", type=["pdf"], key="pdf")
 
   if uploaded_file is not None:
