@@ -47,11 +47,9 @@ with st.sidebar:
   )
   st.title("Painel de Controle")
   st.markdown("---")
-  st.markdown("### 💡 Dicas de Uso")
+  st.markdown("### 💡 Como Funciona")
   st.info(
-      "• **Aba Única:** Junta todo o documento numa sequência contínua.\n•"
-      " **Abas Múltiplas:** Separa cada página do PDF numa folha diferente do"
-      " Excel."
+      "1. Faça o upload do ficheiro PDF.\n2. Escolha o formato de saída desejado.\n3. Clique em **Iniciar Processamento**."
   )
   st.markdown("---")
   st.markdown(
@@ -73,102 +71,110 @@ st.markdown("---")
 col1, col2, col3 = st.columns([1, 6, 1])
 
 with col2:
+  # 1. Passo do Upload
   uploaded_file = st.file_uploader(
       "Arraste ou selecione o seu ficheiro PDF", type=["pdf"], key="pdf"
   )
 
   if uploaded_file is not None:
-    progress_bar = st.progress(0)
-    status_text = st.empty()
+    st.markdown("---")
+    st.markdown("### ⚙️ Configurações de Conversão")
 
-    status_text.text("A ler o documento PDF...")
-    progress_bar.progress(30)
+    # 2. Escolha do formato ANTES de processar
+    modo_export = st.radio(
+        "Como deseja estruturar o ficheiro Excel?",
+        [
+            "📑 Tudo em uma única aba contínua (Planilha Única)",
+            "📂 Separar cada página em uma aba diferente (Planilhas Múltiplas)",
+        ],
+    )
 
-    try:
-      with pdfplumber.open(uploaded_file) as pdf:
-        paginas_dict = {}
-        todas_linhas = []
+    st.markdown("")
 
-        for num_pag, page in enumerate(pdf.pages):
-          # Adiciona identificador de página para a versão de aba única
-          cabecalho_pag = [f"--- PÁGINA {num_pag + 1} ---"]
-          todas_linhas.append(cabecalho_pag)
-          
-          linhas_pagina = [f"--- PÁGINA {num_pag + 1} ---"]
-          texto_pagina = page.extract_text(layout=True)
-          
-          if texto_pagina:
-            for linha in texto_pagina.split("\n"):
-              if linha.strip():
-                todas_linhas.append([linha.strip()])
-                linhas_pagina.append(linha.strip())
+    # 3. Botão explícito para iniciar
+    if st.button("🚀 Iniciar Processamento"):
+      progress_bar = st.progress(0)
+      status_text = st.empty()
 
-          # Guarda os dados separados por página
-          paginas_dict[f"Pagina_{num_pag + 1}"] = pd.DataFrame(
-              linhas_pagina, columns=["Conteúdo do Documento"]
-          )
+      status_text.text("A ler o documento PDF...")
+      progress_bar.progress(30)
 
-        progress_bar.progress(80)
-        status_text.text("A preparar opções de exportação...")
+      try:
+        with pdfplumber.open(uploaded_file) as pdf:
+          paginas_dict = {}
+          todas_linhas = []
 
-        if todas_linhas:
-          df_completo = pd.DataFrame(todas_linhas, columns=["Conteúdo do Documento"])
+          for num_pag, page in enumerate(pdf.pages):
+            cabecalho_pag = [f"--- PÁGINA {num_pag + 1} ---"]
+            todas_linhas.append(cabecalho_pag)
 
-          progress_bar.progress(100)
-          status_text.empty()
-          progress_bar.empty()
+            linhas_pagina = [f"--- PÁGINA {num_pag + 1} ---"]
+            texto_pagina = page.extract_text(layout=True)
 
-          st.success("✨ Documento processado com sucesso!")
+            if texto_pagina:
+              for linha in texto_pagina.split("\n"):
+                if linha.strip():
+                  todas_linhas.append([linha.strip()])
+                  linhas_pagina.append(linha.strip())
 
-          # Abas visuais do site
-          tab1, tab2 = st.tabs(
-              ["📋 Pré-visualização", "📥 Opções de Download e Formato"]
-          )
-
-          with tab1:
-            st.markdown("### Visualização prévia dos dados:")
-            st.dataframe(df_completo, use_container_width=True, height=400)
-
-          with tab2:
-            st.markdown("### Como deseja estruturar o ficheiro Excel?")
-            
-            # Escolha interativa do utilizador
-            modo_export = st.radio(
-                "Selecione o formato de saída:",
-                [
-                    "📑 Tudo em uma única aba contínua (Planilha Única)",
-                    "📂 Separar cada página em uma aba diferente (Planilhas Múltiplas)",
-                ],
+            paginas_dict[f"Pagina_{num_pag + 1}"] = pd.DataFrame(
+                linhas_pagina, columns=["Conteúdo do Documento"]
             )
 
-            st.markdown("---")
-            st.markdown("O seu ficheiro está pronto para ser baixado:")
+          progress_bar.progress(80)
+          status_text.text("A gerar a planilha final...")
 
-            # Prepara o Excel com base na escolha
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine="openpyxl") as writer:
-              if "única aba" in modo_export:
-                df_completo.to_excel(writer, index=False, sheet_name="Documento_Completo")
-              else:
-                for nome_aba, df_p in paginas_dict.items():
-                  df_p.to_excel(writer, index=False, sheet_name=nome_aba)
-            
-            excel_data = output.getvalue()
-
-            st.download_button(
-                label="📥 Baixar Planilha Excel (.xlsx)",
-                data=excel_data,
-                file_name="documento_convertido.xlsx",
-                mime=(
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                ),
+          if todas_linhas:
+            df_completo = pd.DataFrame(
+                todas_linhas, columns=["Conteúdo do Documento"]
             )
-        else:
-          progress_bar.empty()
-          status_text.empty()
-          st.warning("⚠️ Não foi possível extrair texto legível deste documento.")
 
-    except Exception as e:
-      progress_bar.empty()
-      status_text.empty()
-      st.error(f"❌ Ocorreu um erro ao processar o ficheiro: {e}")
+            progress_bar.progress(100)
+            status_text.empty()
+            progress_bar.empty()
+
+            st.success("✨ Processamento concluído com sucesso!")
+
+            # Abas visuais do resultado
+            tab1, tab2 = st.tabs(
+                ["📋 Pré-visualização", "📥 Central de Download"]
+            )
+
+            with tab1:
+              st.markdown("### Visualização prévia dos dados:")
+              st.dataframe(df_completo, use_container_width=True, height=400)
+
+            with tab2:
+              st.markdown("### O seu ficheiro está pronto para ser baixado!")
+
+              output = io.BytesIO()
+              with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                if "única aba" in modo_export:
+                  df_completo.to_excel(
+                      writer, index=False, sheet_name="Documento_Completo"
+                  )
+                else:
+                  for nome_aba, df_p in paginas_dict.items():
+                    df_p.to_excel(writer, index=False, sheet_name=nome_aba)
+
+              excel_data = output.getvalue()
+
+              st.download_button(
+                  label="📥 Baixar Planilha Excel (.xlsx)",
+                  data=excel_data,
+                  file_name="documento_convertido.xlsx",
+                  mime=(
+                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                  ),
+              )
+          else:
+            progress_bar.empty()
+            status_text.empty()
+            st.warning(
+                "⚠️ Não foi possível extrair texto legível deste documento."
+            )
+
+      except Exception as e:
+        progress_bar.empty()
+        status_text.empty()
+        st.error(f"❌ Ocorreu um erro ao processar o ficheiro: {e}")
