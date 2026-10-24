@@ -109,44 +109,51 @@ st.markdown(
 )
 
 
-def estruturar_extrato_linha_por_linha(texto_linhas):
-  """Processa o extrato linha por linha para evitar blocos aglomerados."""
+def estruturar_extrato_preciso(texto_linhas):
+  """Parser refinado para extratos do Banco do Brasil, evitando falsas datas."""
   lancamentos = []
-  padrao_data = re.compile(r"^\d{2}/\d{2}/\d{4}")
-  ultima_data = ""
+  # Regex estrita para datas no formato DD/MM/AAAA
+  padrao_data = re.compile(r"^(\d{2}/\d{2}/\d{4})")
+
+  ultima_data_valida = ""
 
   for linha in texto_linhas:
     linha = linha.strip()
     if not linha or "--- PÁGINA" in linha:
       continue
 
-    # Ignora cabeçalhos irrelevantes do topo
+    # Ignora cabeçalhos e rodapés institucionais comuns
     if any(
-        cab in linha
-        for cab in [
+        termo in linha
+        for termo in [
             "Extrato de Conta",
             "Cliente",
             "Agência",
-            "Conta corrente",
+            "Contacorrente",
             "Período do",
+            "Lançamentos",
             "Dt.",
             "balancete",
+            "Transação efetuada",
+            "Documento Valor",
         ]
     ):
       continue
 
-    # Se a linha começa com data, guarda como a data atual
     match_data = padrao_data.match(linha)
     if match_data:
-      ultima_data = match_data.group(0)
-      resto = linha.replace(ultima_data, "", 1).strip()
-      lancamentos.append({"Data": ultima_data, "Histórico / Lançamento": resto})
+      # Encontrou uma data real no início da linha
+      ultima_data_valida = match_data.group(1)
+      resto = linha.replace(ultima_data_valida, "", 1).strip()
+      lancamentos.append({
+          "Data": ultima_data_valida,
+          "Histórico / Lançamento": resto,
+      })
     else:
-      # Se não tem data, vincula à última data detetada ou cria linha limpa
-      if lancamentos:
-        lancamentos.append(
-            {"Data": ultima_data, "Histórico / Lançamento": linha}
-        )
+      # Linha sem data (continuação de histórico ou detalhe)
+      if lancamentos and ultima_data_valida:
+        # Adiciona ao último lançamento válido se fizer sentido
+        lancamentos[-1]["Histórico / Lançamento"] += " " + linha
       else:
         lancamentos.append({"Data": "", "Histórico / Lançamento": linha})
 
@@ -250,8 +257,8 @@ with col2:
                   todas_linhas_brutas.append(linha.strip())
                   linhas_pag.append(linha.strip())
 
-            paginas_dict[f"Pagina_{num_pag + 1}"] = (
-                estruturar_extrato_linha_por_linha(linhas_pag)
+            paginas_dict[f"Pagina_{num_pag + 1}"] = estruturar_extrato_preciso(
+                linhas_pag
             )
         else:
           status_text.text("A ler o documento PDF...")
@@ -267,14 +274,14 @@ with col2:
                     todas_linhas_brutas.append(linha.strip())
                     linhas_pag.append(linha.strip())
 
-              paginas_dict[f"Pagina_{num_pag + 1}"] = (
-                  estruturar_extrato_linha_por_linha(linhas_pag)
+              paginas_dict[f"Pagina_{num_pag + 1}"] = estruturar_extrato_preciso(
+                  linhas_pag
               )
 
         progress_bar.progress(80)
         status_text.text("A gerar a planilha final organizada...")
 
-        df_completo = estruturar_extrato_linha_por_linha(todas_linhas_brutas)
+        df_completo = estruturar_extrato_preciso(todas_linhas_brutas)
 
         if not df_completo.empty:
           progress_bar.progress(100)
