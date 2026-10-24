@@ -109,46 +109,38 @@ st.markdown(
 )
 
 
-def parsear_extrato_bancario(texto_linhas):
-  """Função inteligente para transformar linhas de texto bruto de extratos em colunas estruturadas."""
-  dados_estruturados = []
-
-  # Expressão regular para detetar datas (ex: 25/11/2022)
-  padrao_data = re.compile(r"\b\d{2}/\d{2}/\d{4}\b")
+def estruturar_extrato_banco_brasil(texto_linhas):
+  """Extrai e separa com precisão os lançamentos do extrato bancário."""
+  lancamentos = []
+  padrao_data = re.compile(r"^\d{2}/\d{2}/\d{4}")
 
   for linha in texto_linhas:
     linha = linha.strip()
-    if not linha or "--- PÁGINA" in linha or "Extrato" in linha:
+    if not linha:
       continue
 
-    # Tenta detetar se a linha começa com uma data
-    match_data = padrao_data.search(linha)
-    if match_data:
-      data_encontrada = match_data.group(0)
-      # Remove a data do resto do texto para analisar o histórico e valores
-      resto = linha.replace(data_encontrada, "").strip()
-
-      dados_estruturados.append(
-          {
-              "Data": data_encontrada,
-              "Histórico e Detalhes": resto,
-          }
-      )
+    # Verifica se a linha começa com uma data (indicando uma transação)
+    if padrao_data.match(linha):
+      partes = linha.split()
+      data = partes[0]
+      # O resto da linha contém os detalhes
+      detalhes = " ".join(partes[1:])
+      lancamentos.append({"Data": data, "Descrição / Histórico": detalhes})
     else:
-      # Linhas complementares (como descrições longas de lançamentos)
-      if dados_estruturados:
-        dados_estruturados[-1]["Histórico e Detalhes"] += " " + linha
-      else:
-        dados_estruturados.append(
-            {"Data": "", "Histórico e Detalhes": linha}
-        )
+      # Linhas de continuação de histórico (ex: nome do favorecido ou detalhes)
+      if lancamentos and not padrao_data.match(linha):
+        # Ignora cabeçalhos genéricos
+        if (
+            "Extrato" not in linha
+            and "Agência" not in linha
+            and "Cliente" not in linha
+        ):
+          lancamentos[-1]["Descrição / Histórico"] += " " + linha
 
-  if dados_estruturados:
-    return pd.DataFrame(dados_estruturados)
+  if lancamentos:
+    return pd.DataFrame(lancamentos)
   else:
-    return pd.DataFrame(
-        {"Conteúdo do Documento": texto_linhas}
-    )  # Fallback se não encontrar padrão
+    return pd.DataFrame({"Conteúdo Bruto": texto_linhas})
 
 
 # --- BARRA LATERAL ---
@@ -159,8 +151,8 @@ with st.sidebar:
   st.markdown("---")
   st.markdown("### 💡 Como Funciona")
   st.info(
-      "1. Selecione o ficheiro PDF.\n2. Ative o **OCR** se o documento for"
-      " escaneado.\n3. Clique em **Iniciar Processamento**."
+      "1. Selecione o ficheiro PDF.\n2. Ative o **OCR** para documentos"
+      " escaneados.\n3. Clique em **Iniciar Processamento**."
   )
   st.markdown("---")
   st.markdown(
@@ -198,7 +190,7 @@ with col2:
   usar_ocr = st.checkbox(
       "🔍 Ativar OCR (Recomendado para PDFs escaneados ou sem texto"
       " selecionável)",
-      value=True,  # Deixamos ativado por padrão para facilitar os seus testes com o extrato BB
+      value=True,
   )
 
   modo_export = st.radio(
@@ -232,64 +224,68 @@ with col2:
 
       try:
         if usar_ocr:
-          status_text.text("A processar páginas via OCR (Reconhecimento)...")
+          status_text.text("A processar páginas via OCR...")
           progress_bar.progress(30)
 
           images = convert_from_bytes(file_bytes)
           for num_pag, image in enumerate(images):
-            todas_linhas_brutas.append(f"--- PÁGINA {num_pag + 1} ---")
             texto_ocr = pytesseract.image_to_string(image, lang="por")
+            linhas_pag = []
             if texto_ocr:
               for linha in texto_ocr.split("\n"):
                 if linha.strip():
                   todas_linhas_brutas.append(linha.strip())
+                  linhas_pag.append(linha.strip())
 
-            df_pag = parsear_extrato_bancario(todas_linhas_brutas)
-            paginas_dict[f"Pagina_{num_pag + 1}"] = df_pag
+            paginas_dict[f"Pagina_{num_pag + 1}"] = (
+                estruturar_extrato_banco_brasil(linhas_pag)
+            )
         else:
           status_text.text("A ler o documento PDF...")
           progress_bar.progress(30)
 
           with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
             for num_pag, page in enumerate(pdf.pages):
-              todas_linhas_brutas.append(f"--- PÁGINA {num_pag + 1} ---")
               texto_pagina = page.extract_text()
+              linhas_pag = []
               if texto_pagina:
                 for linha in texto_pagina.split("\n"):
                   if linha.strip():
                     todas_linhas_brutas.append(linha.strip())
+                    linhas_pag.append(linha.strip())
 
-              df_pag = parsear_extrato_bancario(todas_linhas_brutas)
-              paginas_dict[f"Pagina_{num_pag + 1}"] = df_pag
+              paginas_dict[f"Pagina_{num_pag + 1}"] = (
+                  estruturar_extrato_banco_brasil(linhas_pag)
+              )
 
         progress_bar.progress(80)
-        status_text.text("A gerar a planilha final estruturada...")
+        status_text.text("A gerar a planilha final organizada...")
 
-        df_completo = parsear_extrato_bancario(todas_linhas_brutas)
+        df_completo = estruturar_extrato_banco_brasil(todas_linhas_brutas)
 
         if not df_completo.empty:
           progress_bar.progress(100)
           status_text.empty()
           progress_bar.empty()
 
-          st.success("✨ Processamento estruturado concluído com sucesso!")
+          st.success("✨ Processamento e organização concluídos com sucesso!")
 
           tab1, tab2 = st.tabs(
               ["📋 Pré-visualização", "📥 Central de Download"]
           )
 
           with tab1:
-            st.markdown("### Visualização prévia estruturada:")
+            st.markdown("### Visualização prévia organizada:")
             st.dataframe(df_completo, use_container_width=True, height=350)
 
           with tab2:
-            st.markdown("### O seu ficheiro formatado está pronto!")
+            st.markdown("### O seu ficheiro está pronto para baixar!")
 
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine="openpyxl") as writer:
               if "Tabela única" in modo_export:
                 df_completo.to_excel(
-                    writer, index=False, sheet_name="Extrato_Estruturado"
+                    writer, index=False, sheet_name="Extrato_Limpo"
                 )
               else:
                 for nome_aba, df_p in paginas_dict.items():
@@ -298,9 +294,9 @@ with col2:
             excel_data = output.getvalue()
 
             st.download_button(
-                label="📥 Baixar Planilha Excel Estruturada (.xlsx)",
+                label="📥 Baixar Planilha Excel Organizada (.xlsx)",
                 data=excel_data,
-                file_name="extrato_convertido_estruturado.xlsx",
+                file_name="extrato_organizado.xlsx",
                 mime=(
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 ),
@@ -308,7 +304,7 @@ with col2:
         else:
           progress_bar.empty()
           status_text.empty()
-          st.warning("⚠️ Não foi possível estruturar os dados deste documento.")
+          st.warning("⚠️ Não foi possível estruturar os dados.")
 
       except Exception as e:
         progress_bar.empty()
