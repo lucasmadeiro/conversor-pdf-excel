@@ -186,31 +186,18 @@ with col2:
             todas_linhas.append([f"--- PÁGINA {num_pag + 1} ---"])
             linhas_pagina = [f"--- PÁGINA {num_pag + 1} ---"]
             
-            # Extração de texto por caracteres e posições (ideal para extratos bancários)
-            chars = page.chars
-            if chars:
-              # Agrupa os caracteres horizontalmente por linha (tolerância vertical de 4 pontos)
-              chars_sorted = sorted(chars, key=lambda c: (round(c['top'] / 4) * 4, c['x0']))
-              lines_dict = {}
-              for c in chars_sorted:
-                line_key = round(c['top'] / 4) * 4
-                if line_key not in lines_dict:
-                  lines_dict[line_key] = []
-                lines_dict[line_key].append(c['text'])
-              
-              for l_key in sorted(lines_dict.keys()):
-                linha_texto = "".join(lines_dict[l_key]).strip()
-                if linha_texto:
-                  todas_linhas.append([linha_texto])
-                  linhas_pagina.append(linha_texto)
-            else:
-              # Fallback caso os caracteres venham vazios
-              texto_pagina = page.extract_text()
-              if texto_pagina:
-                for linha in texto_pagina.split("\n"):
-                  if linha.strip():
-                    todas_linhas.append([linha.strip()])
-                    linhas_pagina.append(linha.strip())
+            # Extração de texto otimizada com layout preservado
+            texto_pagina = page.extract_text(layout=False)
+
+            if not texto_pagina or not texto_pagina.strip():
+              # Tentativa alternativa caso o layout padrão venha vazio
+              texto_pagina = page.extract_text(layout=True)
+
+            if texto_pagina:
+              for linha in texto_pagina.split("\n"):
+                if linha.strip():
+                  todas_linhas.append([linha.strip()])
+                  linhas_pagina.append(linha.strip())
 
             paginas_dict[f"Pagina_{num_pag + 1}"] = pd.DataFrame(
                 linhas_pagina, columns=["Conteúdo do Documento"]
