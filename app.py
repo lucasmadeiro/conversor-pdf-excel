@@ -109,58 +109,72 @@ st.markdown(
 )
 
 
-def estruturar_extrato_preciso(texto_linhas):
-  """Parser refinado para extratos do Banco do Brasil, evitando falsas datas."""
-  lancamentos = []
-  # Regex estrita para datas no formato DD/MM/AAAA
-  padrao_data = re.compile(r"^(\d{2}/\d{2}/\d{4})")
+def parser_universal_extrato(linhas_texto):
+  """Parser genérico e adaptável para extratos de múltiplos bancos (Itaú, BB, Bradesco, Santander, etc.)."""
+  transacoes = []
 
-  ultima_data_valida = ""
+  # Regex universal para capturar datas no início da linha (DD/MM ou DD/MM/AAAA ou DD/MM/AA)
+  regex_data = re.compile(
+      r"^(\d{2}/\d{2}(?:/\d{2,4})?)\b"
+  )
 
-  for linha in texto_linhas:
-    linha = linha.strip()
-    if not linha or "--- PÁGINA" in linha:
+  # Palavras a ignorar (rodapés operacionais, institucionais e contatos de SAC)
+  termos_ignorar = [
+      "extrato mensal",
+      "sac 0800",
+      "ouvidoria",
+      "central de atendimento",
+      "notas explicativas",
+      "página",
+      "paginal",
+      "total entradas",
+      "total saídas",
+      "este material está disponível",
+  ]
+
+  data_atual = ""
+
+  for linha in linhas_texto:
+    linha_limpa = linha.strip()
+    if not linha_limpa:
       continue
 
-    # Ignora cabeçalhos e rodapés institucionais comuns
-    if any(
-        termo in linha
-        for termo in [
-            "Extrato de Conta",
-            "Cliente",
-            "Agência",
-            "Contacorrente",
-            "Período do",
-            "Lançamentos",
-            "Dt.",
-            "balancete",
-            "Transação efetuada",
-            "Documento Valor",
-        ]
-    ):
+    # Filtra informações genéricas de rodapé/SAC
+    linha_lower = linha_limpa.lower()
+    if any(termo in linha_lower for termo in termos_ignorar):
       continue
 
-    match_data = padrao_data.match(linha)
+    match_data = regex_data.match(linha_limpa)
+
     if match_data:
-      # Encontrou uma data real no início da linha
-      ultima_data_valida = match_data.group(1)
-      resto = linha.replace(ultima_data_valida, "", 1).strip()
-      lancamentos.append({
-          "Data": ultima_data_valida,
-          "Histórico / Lançamento": resto,
+      # Linha com nova data de lançamento
+      data_encontrada = match_data.group(1)
+      data_atual = data_encontrada
+      conteudo = linha_limpa[match_data.end() :].strip()
+
+      transacoes.append({
+          "Data": data_atual,
+          "Lançamento / Histórico": conteudo,
       })
     else:
-      # Linha sem data (continuação de histórico ou detalhe)
-      if lancamentos and ultima_data_valida:
-        # Adiciona ao último lançamento válido se fizer sentido
-        lancamentos[-1]["Histórico / Lançamento"] += " " + linha
+      # Linha sem data no início
+      if transacoes and data_atual:
+        # Se for uma linha complementar (descrição longa ou valor alinhado), concatena ou adiciona nova linha
+        transacoes.append({
+            "Data": data_atual,
+            "Lançamento / Histórico": linha_limpa,
+        })
       else:
-        lancamentos.append({"Data": "", "Histórico / Lançamento": linha})
+        # Caso a linha surja antes da primeira data mas seja relevante
+        transacoes.append({
+            "Data": "",
+            "Lançamento / Histórico": linha_limpa,
+        })
 
-  if lancamentos:
-    return pd.DataFrame(lancamentos)
+  if transacoes:
+    return pd.DataFrame(transacoes)
   else:
-    return pd.DataFrame({"Conteúdo Bruto": texto_linhas})
+    return pd.DataFrame({"Conteúdo Bruto": linhas_texto})
 
 
 # --- BARRA LATERAL ---
@@ -171,8 +185,9 @@ with st.sidebar:
   st.markdown("---")
   st.markdown("### 💡 Como Funciona")
   st.info(
-      "1. Selecione o ficheiro PDF.\n2. Ative o **OCR** se necessário.\n3."
-      " Clique em **Iniciar Processamento**."
+      "1. Envie o extrato bancário em PDF.\n2. Escolha se deseja usar **OCR**"
+      " (para extratos em formato de imagem/escanados).\n3. Clique em **Iniciar"
+      " Processamento**."
   )
   st.markdown("---")
   st.markdown(
@@ -182,17 +197,17 @@ with st.sidebar:
   )
 
 # --- CORPO PRINCIPAL ---
-st.title("⚡ Conversor Inteligente de PDF para Excel")
+st.title("⚡ Conversor Multibanco de PDF para Excel")
 st.markdown(
-    "<p class='upload-text'>Transforme documentos complexos em planilhas"
-    " Excel organizadas do seu jeito.</p>",
+    "<p class='upload-text'>Suporte universal para extratos do Itaú, Banco do"
+    " Brasil, Bradesco, Caixa, Santander e outros.</p>",
     unsafe_allow_html=True,
 )
 
 st.markdown(
     """
     <div class="converter-header">
-        <div class="badge-file badge-pdf">📄 Arquivo PDF</div>
+        <div class="badge-file badge-pdf">📄 Extrato PDF</div>
         <div class="arrow-icon">➔ ⚡ ➔</div>
         <div class="badge-file badge-excel">📊 Planilha Excel</div>
     </div>
@@ -210,7 +225,7 @@ with col2:
   usar_ocr = st.checkbox(
       "🔍 Ativar OCR (Recomendado para PDFs escaneados ou sem texto"
       " selecionável)",
-      value=True,
+      value=False,
   )
 
   modo_export = st.radio(
@@ -244,7 +259,9 @@ with col2:
 
       try:
         if usar_ocr:
-          status_text.text("A processar páginas via OCR...")
+          status_text.text(
+              "A realizar leitura visual OCR (compatível com digitalizações)..."
+          )
           progress_bar.progress(30)
 
           images = convert_from_bytes(file_bytes)
@@ -257,16 +274,17 @@ with col2:
                   todas_linhas_brutas.append(linha.strip())
                   linhas_pag.append(linha.strip())
 
-            paginas_dict[f"Pagina_{num_pag + 1}"] = estruturar_extrato_preciso(
+            paginas_dict[f"Pagina_{num_pag + 1}"] = parser_universal_extrato(
                 linhas_pag
             )
         else:
-          status_text.text("A ler o documento PDF...")
+          status_text.text("A ler a camada de texto do PDF...")
           progress_bar.progress(30)
 
           with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
             for num_pag, page in enumerate(pdf.pages):
-              texto_pagina = page.extract_text()
+              # Extração que respeita a ordenação natural do texto na página
+              texto_pagina = page.extract_text(layout=False)
               linhas_pag = []
               if texto_pagina:
                 for linha in texto_pagina.split("\n"):
@@ -274,28 +292,28 @@ with col2:
                     todas_linhas_brutas.append(linha.strip())
                     linhas_pag.append(linha.strip())
 
-              paginas_dict[f"Pagina_{num_pag + 1}"] = estruturar_extrato_preciso(
+              paginas_dict[f"Pagina_{num_pag + 1}"] = parser_universal_extrato(
                   linhas_pag
               )
 
         progress_bar.progress(80)
-        status_text.text("A gerar a planilha final organizada...")
+        status_text.text("A estruturar a planilha final...")
 
-        df_completo = estruturar_extrato_preciso(todas_linhas_brutas)
+        df_completo = parser_universal_extrato(todas_linhas_brutas)
 
         if not df_completo.empty:
           progress_bar.progress(100)
           status_text.empty()
           progress_bar.empty()
 
-          st.success("✨ Processamento e organização concluídos com sucesso!")
+          st.success("✨ Processamento concluído com sucesso!")
 
           tab1, tab2 = st.tabs(
               ["📋 Pré-visualização", "📥 Central de Download"]
           )
 
           with tab1:
-            st.markdown("### Visualização prévia organizada:")
+            st.markdown("### Visualização prévia da conversão:")
             st.dataframe(df_completo, use_container_width=True, height=350)
 
           with tab2:
@@ -305,7 +323,7 @@ with col2:
             with pd.ExcelWriter(output, engine="openpyxl") as writer:
               if "Tabela única" in modo_export:
                 df_completo.to_excel(
-                    writer, index=False, sheet_name="Extrato_Limpo"
+                    writer, index=False, sheet_name="Extrato_Convertido"
                 )
               else:
                 for nome_aba, df_p in paginas_dict.items():
@@ -314,9 +332,9 @@ with col2:
             excel_data = output.getvalue()
 
             st.download_button(
-                label="📥 Baixar Planilha Excel Organizada (.xlsx)",
+                label="📥 Baixar Planilha Excel (.xlsx)",
                 data=excel_data,
-                file_name="extrato_organizado.xlsx",
+                file_name="extrato_convertido_universal.xlsx",
                 mime=(
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 ),
@@ -324,7 +342,7 @@ with col2:
         else:
           progress_bar.empty()
           status_text.empty()
-          st.warning("⚠️ Não foi possível estruturar os dados.")
+          st.warning("⚠️ Nenhum conteúdo extraível encontrado no documento.")
 
       except Exception as e:
         progress_bar.empty()
