@@ -109,16 +109,14 @@ st.markdown(
 )
 
 
-def parser_universal_extrato(linhas_texto):
-  """Parser genérico e adaptável para extratos de múltiplos bancos (Itaú, BB, Bradesco, Santander, etc.)."""
+def parser_universal_extrato_limpo(linhas_texto):
+  """Parser inteligente que filtra ruídos, cabeçalhos, rodapés e glossários, focando apenas nos lançamentos financeiros."""
   transacoes = []
 
-  # Regex universal para capturar datas no início da linha (DD/MM ou DD/MM/AAAA ou DD/MM/AA)
-  regex_data = re.compile(
-      r"^(\d{2}/\d{2}(?:/\d{2,4})?)\b"
-  )
+  # Regex para detetar datas no início (ex: 29/11, 06/12, 01/12/2022)
+  regex_data = re.compile(r"^(\d{2}/\d{2}(?:/\d{2,4})?)\b")
 
-  # Palavras a ignorar (rodapés operacionais, institucionais e contatos de SAC)
+  # Termos que identificam lixo institucional, cabeçalhos, resumos e glossários de bancos
   termos_ignorar = [
       "extrato mensal",
       "sac 0800",
@@ -130,8 +128,23 @@ def parser_universal_extrato(linhas_texto):
       "total entradas",
       "total saídas",
       "este material está disponível",
+      "conta corrente e aplicações",
+      "minha conta",
+      "minha agência",
+      "av. joao pinheiro",
+      "belo horizonte",
+      "banco do brasil",
+      "cliente - conta",
+      "balancete movimento",
+      "principais siglas utilizadas",
+      "adicionada a depositante",
+      "cadastrado de cheque",
+      "caixa eletrônico",
+      "transação realizada",
+      "título",
   ]
 
+  gravando_lancamentos = False
   data_atual = ""
 
   for linha in linhas_texto:
@@ -139,42 +152,55 @@ def parser_universal_extrato(linhas_texto):
     if not linha_limpa:
       continue
 
-    # Filtra informações genéricas de rodapé/SAC
     linha_lower = linha_limpa.lower()
+
+    # Ignora linhas irrelevantes ou termos de rodapé/glossário
     if any(termo in linha_lower for termo in termos_ignorar):
       continue
 
+    # Detecta o início real da tabela de lançamentos no extrato
+    if "saldo anterior" in linha_lower or "lançamentos" in linha_lower:
+      gravando_lancamentos = True
+      continue
+
+    # Detecta o fim da tabela (geralmente onde começam as notas explicativas ou glossários)
+    if (
+        "principais siglas" in linha_lower
+        or "para demais siglas" in linha_lower
+        or "deficiente auditivo" in linha_lower
+    ):
+      gravando_lancamentos = False
+      continue
+
+    # Se estamos dentro da zona de lançamentos ou se a linha tem uma data válida
     match_data = regex_data.match(linha_limpa)
 
     if match_data:
-      # Linha com nova data de lançamento
-      data_encontrada = match_data.group(1)
-      data_atual = data_encontrada
+      gravando_lancamentos = (
+          True  # Ativa automaticamente se encontrar uma data de lançamento
+      )
+      data_atual = match_data.group(1)
       conteudo = linha_limpa[match_data.end() :].strip()
 
-      transacoes.append({
-          "Data": data_atual,
-          "Lançamento / Histórico": conteudo,
-      })
-    else:
-      # Linha sem data no início
-      if transacoes and data_atual:
-        # Se for uma linha complementar (descrição longa ou valor alinhado), concatena ou adiciona nova linha
-        transacoes.append({
-            "Data": data_atual,
-            "Lançamento / Histórico": linha_limpa,
-        })
+      transacoes.append({"Data": data_atual, "Histórico / Lançamento": conteudo})
+    elif gravando_lancamentos:
+      # Linha sem data explícita, mas dentro da tabela (continuação de histórico)
+      if transacoes:
+        transacoes.append(
+            {"Data": data_atual, "Histórico / Lançamento": linha_limpa}
+        )
       else:
-        # Caso a linha surja antes da primeira data mas seja relevante
-        transacoes.append({
-            "Data": "",
-            "Lançamento / Histórico": linha_limpa,
-        })
+        transacoes.append({"Data": "", "Histórico / Lançamento": linha_limpa})
 
-  if transacoes:
-    return pd.DataFrame(transacoes)
-  else:
-    return pd.DataFrame({"Conteúdo Bruto": linhas_texto})
+  # Se o filtro restritivo foi muito rigoroso e não pegou nada, faz fallback para todas as linhas limpas
+  if not transacoes:
+    for linha in linhas_texto:
+      if linha.strip():
+        transacoes.append(
+            {"Data": "", "Histórico / Lançamento": linha.strip()}
+        )
+
+  return pd.DataFrame(transacoes)
 
 
 # --- BARRA LATERAL ---
@@ -185,8 +211,8 @@ with st.sidebar:
   st.markdown("---")
   st.markdown("### 💡 Como Funciona")
   st.info(
-      "1. Envie o extrato bancário em PDF.\n2. Escolha se deseja usar **OCR**"
-      " (para extratos em formato de imagem/escanados).\n3. Clique em **Iniciar"
+      "1. Envie o extrato bancário em PDF.\n2. Ative o **OCR** apenas se o"
+      " extrato for uma imagem/escanado.\n3. Clique em **Iniciar"
       " Processamento**."
   )
   st.markdown("---")
@@ -199,8 +225,8 @@ with st.sidebar:
 # --- CORPO PRINCIPAL ---
 st.title("⚡ Conversor Multibanco de PDF para Excel")
 st.markdown(
-    "<p class='upload-text'>Suporte universal para extratos do Itaú, Banco do"
-    " Brasil, Bradesco, Caixa, Santander e outros.</p>",
+    "<p class='upload-text'>Suporte universal para extratos de qualquer"
+    " instituição financeira.</p>",
     unsafe_allow_html=True,
 )
 
@@ -259,9 +285,7 @@ with col2:
 
       try:
         if usar_ocr:
-          status_text.text(
-              "A realizar leitura visual OCR (compatível com digitalizações)..."
-          )
+          status_text.text("A realizar leitura visual OCR...")
           progress_bar.progress(30)
 
           images = convert_from_bytes(file_bytes)
@@ -274,8 +298,8 @@ with col2:
                   todas_linhas_brutas.append(linha.strip())
                   linhas_pag.append(linha.strip())
 
-            paginas_dict[f"Pagina_{num_pag + 1}"] = parser_universal_extrato(
-                linhas_pag
+            paginas_dict[f"Pagina_{num_pag + 1}"] = (
+                parser_universal_extrato_limpo(linhas_pag)
             )
         else:
           status_text.text("A ler a camada de texto do PDF...")
@@ -283,7 +307,6 @@ with col2:
 
           with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
             for num_pag, page in enumerate(pdf.pages):
-              # Extração que respeita a ordenação natural do texto na página
               texto_pagina = page.extract_text(layout=False)
               linhas_pag = []
               if texto_pagina:
@@ -292,14 +315,14 @@ with col2:
                     todas_linhas_brutas.append(linha.strip())
                     linhas_pag.append(linha.strip())
 
-              paginas_dict[f"Pagina_{num_pag + 1}"] = parser_universal_extrato(
-                  linhas_pag
+              paginas_dict[f"Pagina_{num_pag + 1}"] = (
+                  parser_universal_extrato_limpo(linhas_pag)
               )
 
         progress_bar.progress(80)
         status_text.text("A estruturar a planilha final...")
 
-        df_completo = parser_universal_extrato(todas_linhas_brutas)
+        df_completo = parser_universal_extrato_limpo(todas_linhas_brutas)
 
         if not df_completo.empty:
           progress_bar.progress(100)
