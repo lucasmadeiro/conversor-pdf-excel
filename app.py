@@ -188,16 +188,33 @@ with col2:
 
             linhas_pagina = [f"--- PÁGINA {num_pag + 1} ---"]
             
-            # Tenta extração com layout, se falhar ou vier vazio, usa extração padrão
-            texto_pagina = page.extract_text(layout=True)
-            if not texto_pagina or not texto_pagina.strip():
+            # Extração robusta baseada nas palavras e coordenadas da página
+            words = page.extract_words()
+            if words:
+              # Ordena as palavras por posição vertical (top) e horizontal (x0)
+              words = sorted(words, key=lambda w: (w['top'], w['x0']))
+              
+              lines_dict = {}
+              for w in words:
+                # Agrupa palavras que estão na mesma linha aproximada (tolerância de 5 pixels)
+                top_key = round(w['top'] / 5) * 5
+                if top_key not in lines_dict:
+                  lines_dict[top_key] = []
+                lines_dict[top_key].append(w['text'])
+              
+              for t in sorted(lines_dict.keys()):
+                linha_texto = " ".join(lines_dict[t])
+                if linha_texto.strip():
+                  todas_linhas.append([linha_texto.strip()])
+                  linhas_pagina.append(linha_texto.strip())
+            else:
+              # Fallback caso extract_words venha vazio
               texto_pagina = page.extract_text()
-
-            if texto_pagina:
-              for linha in texto_pagina.split("\n"):
-                if linha.strip():
-                  todas_linhas.append([linha.strip()])
-                  linhas_pagina.append(linha.strip())
+              if texto_pagina:
+                for linha in texto_pagina.split("\n"):
+                  if linha.strip():
+                    todas_linhas.append([linha.strip()])
+                    linhas_pagina.append(linha.strip())
 
             paginas_dict[f"Pagina_{num_pag + 1}"] = pd.DataFrame(
                 linhas_pagina, columns=["Conteúdo do Documento"]
@@ -206,7 +223,7 @@ with col2:
           progress_bar.progress(80)
           status_text.text("A gerar a planilha final...")
 
-          if todas_linhas:
+          if len(todas_linhas) > 1:
             df_completo = pd.DataFrame(
                 todas_linhas, columns=["Conteúdo do Documento"]
             )
