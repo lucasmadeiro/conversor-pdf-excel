@@ -3,7 +3,7 @@ import pandas as pd
 import pdfplumber
 import streamlit as st
 
-# Configuração da Página com layout wide para aproveitar melhor o espaço
+# Configuração da Página
 st.set_page_config(
     page_title="Conversor Profissional de PDF",
     page_icon="⚡",
@@ -11,7 +11,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Estilo CSS Personalizado para deixar o visual mais elegante e moderno
+# Estilo CSS Personalizado
 st.markdown(
     """
     <style>
@@ -40,7 +40,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# --- BARRA LATERAL (SIDEBAR) ---
+# --- BARRA LATERAL ---
 with st.sidebar:
   st.image(
       "https://img.icons8.com/clouds/200/microsoft-excel-2019.png", width=100
@@ -49,9 +49,9 @@ with st.sidebar:
   st.markdown("---")
   st.markdown("### 💡 Dicas de Uso")
   st.info(
-      "• **Extratos Bancários:** O sistema alinha o texto preservando a"
-      " estrutura original.\n• **Editais e Textos:** O conteúdo é convertido"
-      " linha por linha de forma limpa."
+      "• **Aba Única:** Junta todo o documento numa sequência contínua.\n•"
+      " **Abas Múltiplas:** Separa cada página do PDF numa folha diferente do"
+      " Excel."
   )
   st.markdown("---")
   st.markdown(
@@ -63,14 +63,13 @@ with st.sidebar:
 # --- CORPO PRINCIPAL ---
 st.title("⚡ Conversor Inteligente de PDF para Excel")
 st.markdown(
-    "<p class='upload-text'>Transforme extratos, relatórios e documentos"
-    " complexos em planilhas Excel organizadas instantaneamente.</p>",
+    "<p class='upload-text'>Transforme documentos complexos em planilhas"
+    " Excel organizadas do seu jeito.</p>",
     unsafe_allow_html=True,
 )
 
 st.markdown("---")
 
-# Container central de Upload com design elegante
 col1, col2, col3 = st.columns([1, 6, 1])
 
 with col2:
@@ -79,7 +78,6 @@ with col2:
   )
 
   if uploaded_file is not None:
-    # Barra de progresso fluida
     progress_bar = st.progress(0)
     status_text = st.empty()
 
@@ -88,58 +86,79 @@ with col2:
 
     try:
       with pdfplumber.open(uploaded_file) as pdf:
-        linhas_extraidas = []
+        paginas_dict = {}
+        todas_linhas = []
 
         for num_pag, page in enumerate(pdf.pages):
-          linhas_extraidas.append([f"--- PÁGINA {num_pag + 1} ---"])
+          # Adiciona identificador de página para a versão de aba única
+          cabecalho_pag = [f"--- PÁGINA {num_pag + 1} ---"]
+          todas_linhas.append(cabecalho_pag)
+          
+          linhas_pagina = [f"--- PÁGINA {num_pag + 1} ---"]
           texto_pagina = page.extract_text(layout=True)
+          
           if texto_pagina:
             for linha in texto_pagina.split("\n"):
               if linha.strip():
-                linhas_extraidas.append([linha.strip()])
+                todas_linhas.append([linha.strip()])
+                linhas_pagina.append(linha.strip())
+
+          # Guarda os dados separados por página
+          paginas_dict[f"Pagina_{num_pag + 1}"] = pd.DataFrame(
+              linhas_pagina, columns=["Conteúdo do Documento"]
+          )
 
         progress_bar.progress(80)
-        status_text.text("A formatar os dados para a planilha...")
+        status_text.text("A preparar opções de exportação...")
 
-        if linhas_extraidas:
-          df = pd.DataFrame(linhas_extraidas, columns=["Conteúdo do Documento"])
+        if todas_linhas:
+          df_completo = pd.DataFrame(todas_linhas, columns=["Conteúdo do Documento"])
 
           progress_bar.progress(100)
           status_text.empty()
           progress_bar.empty()
 
-          # Alerta de Sucesso
-          st.success(
-              f"✨ Conversão concluída com sucesso! Total de linhas processadas:"
-              f" {len(df)}"
-          )
+          st.success("✨ Documento processado com sucesso!")
 
-          # Criação de Abas (Tabs) para uma navegação limpa e moderna
+          # Abas visuais do site
           tab1, tab2 = st.tabs(
-              ["📋 Pré-visualização da Planilha", "📥 Central de Download"]
+              ["📋 Pré-visualização", "📥 Opções de Download e Formato"]
           )
 
           with tab1:
-            st.markdown("### Visualização prévia dos dados extraídos:")
-            st.dataframe(df, use_container_width=True, height=400)
+            st.markdown("### Visualização prévia dos dados:")
+            st.dataframe(df_completo, use_container_width=True, height=400)
 
           with tab2:
-            st.markdown("### O seu ficheiro está pronto para ser baixado!")
-            st.write(
-                "Clique no botão abaixo para descarregar o documento convertido"
-                " no formato oficial do Excel (`.xlsx`)."
+            st.markdown("### Como deseja estruturar o ficheiro Excel?")
+            
+            # Escolha interativa do utilizador
+            modo_export = st.radio(
+                "Selecione o formato de saída:",
+                [
+                    "📑 Tudo em uma única aba contínua (Planilha Única)",
+                    "📂 Separar cada página em uma aba diferente (Planilhas Múltiplas)",
+                ],
             )
 
-            # Prepara o ficheiro Excel
+            st.markdown("---")
+            st.markdown("O seu ficheiro está pronto para ser baixado:")
+
+            # Prepara o Excel com base na escolha
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine="openpyxl") as writer:
-              df.to_excel(writer, index=False, sheet_name="Extrato_Organizado")
+              if "única aba" in modo_export:
+                df_completo.to_excel(writer, index=False, sheet_name="Documento_Completo")
+              else:
+                for nome_aba, df_p in paginas_dict.items():
+                  df_p.to_excel(writer, index=False, sheet_name=nome_aba)
+            
             excel_data = output.getvalue()
 
             st.download_button(
                 label="📥 Baixar Planilha Excel (.xlsx)",
                 data=excel_data,
-                file_name="extrato_convertido_profissional.xlsx",
+                file_name="documento_convertido.xlsx",
                 mime=(
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 ),
@@ -147,9 +166,7 @@ with col2:
         else:
           progress_bar.empty()
           status_text.empty()
-          st.warning(
-              "⚠️ Não foi possível extrair texto legível deste documento."
-          )
+          st.warning("⚠️ Não foi possível extrair texto legível deste documento.")
 
     except Exception as e:
       progress_bar.empty()
