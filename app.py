@@ -1,5 +1,7 @@
 import io
+from pdf2image import convert_from_bytes
 import pandas as pd
+import pytesseract
 import pdfplumber
 import streamlit as st
 
@@ -113,8 +115,9 @@ with st.sidebar:
   st.markdown("---")
   st.markdown("### 💡 Como Funciona")
   st.info(
-      "1. Selecione o ficheiro PDF.\n2. Escolha o formato de apresentação.\n3."
-      " Clique em **Iniciar Processamento**."
+      "1. Selecione o ficheiro PDF.\n2. Escolha se deseja ativar o **OCR** (para"
+      " PDFs escaneados).\n3. Escolha o formato de saída e clique em **Iniciar"
+      " Processamento**."
   )
   st.markdown("---")
   st.markdown(
@@ -147,6 +150,15 @@ col1, col2, col3 = st.columns([1, 6, 1])
 with col2:
   uploaded_file = st.file_uploader("", type=["pdf"], key="pdf")
 
+  st.markdown("### Configurações de Extração")
+
+  # Caixa de seleção para o utilizador ativar o OCR manualmente quando precisar
+  usar_ocr = st.checkbox(
+      "🔍 Ativar OCR (Recomendado para PDFs escaneados ou sem texto"
+      " selecionável)",
+      value=False,
+  )
+
   st.markdown("### Como apresentar os dados?")
 
   modo_export = st.radio(
@@ -174,27 +186,25 @@ with col2:
       progress_bar = st.progress(0)
       status_text = st.empty()
 
-      status_text.text("A ler o documento PDF...")
-      progress_bar.progress(30)
+      paginas_dict = {}
+      todas_linhas = []
+      file_bytes = uploaded_file.getvalue()
 
       try:
-        with pdfplumber.open(uploaded_file) as pdf:
-          paginas_dict = {}
-          todas_linhas = []
+        if usar_ocr:
+          status_text.text(
+              "A processar páginas via OCR (Reconhecimento Ótico)..."
+          )
+          progress_bar.progress(30)
 
-          for num_pag, page in enumerate(pdf.pages):
+          images = convert_from_bytes(file_bytes)
+          for num_pag, image in enumerate(images):
             todas_linhas.append([f"--- PÁGINA {num_pag + 1} ---"])
             linhas_pagina = [f"--- PÁGINA {num_pag + 1} ---"]
-            
-            # Extração de texto otimizada com layout preservado
-            texto_pagina = page.extract_text(layout=False)
 
-            if not texto_pagina or not texto_pagina.strip():
-              # Tentativa alternativa caso o layout padrão venha vazio
-              texto_pagina = page.extract_text(layout=True)
-
-            if texto_pagina:
-              for linha in texto_pagina.split("\n"):
+            texto_ocr = pytesseract.image_to_string(image, lang="por")
+            if texto_ocr:
+              for linha in texto_ocr.split("\n"):
                 if linha.strip():
                   todas_linhas.append([linha.strip()])
                   linhas_pagina.append(linha.strip())
@@ -202,60 +212,83 @@ with col2:
             paginas_dict[f"Pagina_{num_pag + 1}"] = pd.DataFrame(
                 linhas_pagina, columns=["Conteúdo do Documento"]
             )
+        else:
+          status_text.text("A ler o documento PDF...")
+          progress_bar.progress(30)
 
-          progress_bar.progress(80)
-          status_text.text("A gerar a planilha final...")
+          with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+            for num_pag, page in enumerate(pdf.pages):
+              todas_linhas.append([f"--- PÁGINA {num_pag + 1} ---"])
+              linhas_pagina = [f"--- PÁGINA {num_pag + 1} ---"]
 
-          if len(todas_linhas) > 1:
-            df_completo = pd.DataFrame(
-                todas_linhas, columns=["Conteúdo do Documento"]
-            )
+              texto_pagina = page.extract_text()
+              if texto_pagina:
+                for linha in texto_pagina.split("\n"):
+                  if linha.strip():
+                    todas_linhas.append([linha.strip()])
+                    linhas_pagina.append(linha.strip())
 
-            progress_bar.progress(100)
-            status_text.empty()
-            progress_bar.empty()
-
-            st.success("✨ Processamento concluído com sucesso!")
-
-            tab1, tab2 = st.tabs(
-                ["📋 Pré-visualização", "📥 Central de Download"]
-            )
-
-            with tab1:
-              st.markdown("### Visualização prévia dos dados:")
-              st.dataframe(df_completo, use_container_width=True, height=350)
-
-            with tab2:
-              st.markdown("### O seu ficheiro está pronto para ser baixado!")
-
-              output = io.BytesIO()
-              with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                if "Tabela única" in modo_export:
-                  df_completo.to_excel(
-                      writer, index=False, sheet_name="Documento_Completo"
-                  )
-                else:
-                  for nome_aba, df_p in paginas_dict.items():
-                    df_p.to_excel(writer, index=False, sheet_name=nome_aba)
-
-              excel_data = output.getvalue()
-
-              st.download_button(
-                  label="📥 Baixar Planilha Excel (.xlsx)",
-                  data=excel_data,
-                  file_name="documento_convertido.xlsx",
-                  mime=(
-                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                  ),
+              paginas_dict[f"Pagina_{num_pag + 1}"] = pd.DataFrame(
+                  linhas_pagina, columns=["Conteúdo do Documento"]
               )
-          else:
-            progress_bar.empty()
-            status_text.empty()
-            st.warning(
-                "⚠️ Não foi possível extrair texto legível deste documento."
+
+        progress_bar.progress(80)
+        status_text.text("A gerar a planilha final...")
+
+        if len(todas_linhas) > 1:
+          df_completo = pd.DataFrame(
+              todas_linhas, columns=["Conteúdo do Documento"]
+          )
+
+          progress_bar.progress(100)
+          status_text.empty()
+          progress_bar.empty()
+
+          st.success(
+              "✨ Processamento concluído com sucesso"
+              f"{' via OCR' if usar_ocr else ''}!"
+          )
+
+          tab1, tab2 = st.tabs(
+              ["📋 Pré-visualização", "📥 Central de Download"]
+          )
+
+          with tab1:
+            st.markdown("### Visualização prévia dos dados:")
+            st.dataframe(df_completo, use_container_width=True, height=350)
+
+          with tab2:
+            st.markdown("### O seu ficheiro está pronto para ser baixado!")
+
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine="openpyxl") as writer:
+              if "Tabela única" in modo_export:
+                df_completo.to_excel(
+                    writer, index=False, sheet_name="Documento_Completo"
+                )
+              else:
+                for nome_aba, df_p in paginas_dict.items():
+                  df_p.to_excel(writer, index=False, sheet_name=nome_aba)
+
+            excel_data = output.getvalue()
+
+            st.download_button(
+                label="📥 Baixar Planilha Excel (.xlsx)",
+                data=excel_data,
+                file_name="documento_convertido.xlsx",
+                mime=(
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                ),
             )
+        else:
+          progress_bar.empty()
+          status_text.empty()
+          st.warning(
+              "⚠️ Não foi possível extrair texto. Se o PDF for escaneado,"
+              " marque a opção **Ativar OCR** acima."
+          )
 
       except Exception as e:
         progress_bar.empty()
         status_text.empty()
-        st.error(f"❌ Ocorreu um erro ao processar o ficheiro: {e}")
+        st.error(f"❌ Ocorreu um erro no processamento: {e}")
