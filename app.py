@@ -11,7 +11,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Estilo CSS Personalizado
+# Estilo CSS Personalizado para centralizar e colorir o upload
 st.markdown(
     """
     <style>
@@ -26,14 +26,23 @@ st.markdown(
             padding: 0.5rem 1rem;
             border: none;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            width: 100%;
         }
         .stButton>button:hover {
             background-color: #1d4ed8;
             color: white;
         }
+        .upload-title {
+            text-align: center;
+            color: #2563eb;
+            font-weight: 700;
+            font-size: 1.3rem;
+            margin-bottom: 0.5rem;
+        }
         .upload-text {
             font-size: 1.1rem;
             color: #4b5563;
+            text-align: center;
         }
     </style>
 """,
@@ -49,7 +58,8 @@ with st.sidebar:
   st.markdown("---")
   st.markdown("### 💡 Como Funciona")
   st.info(
-      "1. Faça o upload do ficheiro PDF.\n2. Escolha o formato de saída desejado.\n3. Clique em **Iniciar Processamento**."
+      "1. Selecione o seu ficheiro PDF.\n2. Escolha como apresentar os dados.\n3."
+      " Clique em **Iniciar Processamento**."
   )
   st.markdown("---")
   st.markdown(
@@ -71,27 +81,31 @@ st.markdown("---")
 col1, col2, col3 = st.columns([1, 6, 1])
 
 with col2:
-  # 1. Passo do Upload
-  uploaded_file = st.file_uploader(
-      "Arraste ou selecione o seu ficheiro PDF", type=["pdf"], key="pdf"
+  # Mensagem de upload chamativa e centralizada em azul
+  st.markdown(
+      "<div class='upload-title'>📂 Selecione um arquivo PDF</div>",
+      unsafe_allow_html=True,
   )
+
+  uploaded_file = st.file_uploader("", type=["pdf"], key="pdf")
 
   if uploaded_file is not None:
     st.markdown("---")
-    st.markdown("### ⚙️ Configurações de Conversão")
+    st.markdown("### Como apresentar os dados?")
 
-    # 2. Escolha do formato ANTES de processar
+    # Escolha do formato ANTES de processar
     modo_export = st.radio(
-        "Como deseja estruturar o ficheiro Excel?",
+        "Selecione o formato de saída:",
         [
-            "📑 Tudo em uma única aba contínua (Planilha Única)",
-            "📂 Separar cada página em uma aba diferente (Planilhas Múltiplas)",
+            "📑 Tabela única (Todos os dados numa só página contínua)",
+            "📂 Várias tabelas (Separar cada página em abas diferentes)",
         ],
+        label_visibility="collapsed",
     )
 
     st.markdown("")
 
-    # 3. Botão explícito para iniciar
+    # Botão explícito para iniciar
     if st.button("🚀 Iniciar Processamento"):
       progress_bar = st.progress(0)
       status_text = st.empty()
@@ -149,7 +163,7 @@ with col2:
 
               output = io.BytesIO()
               with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                if "única aba" in modo_export:
+                if "Tabela única" in modo_export:
                   df_completo.to_excel(
                       writer, index=False, sheet_name="Documento_Completo"
                   )
