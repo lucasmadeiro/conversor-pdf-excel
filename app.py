@@ -110,36 +110,43 @@ st.markdown(
 
 
 def estruturar_extrato_banco_brasil(texto_linhas):
-  """Extrai e separa com precisão os lançamentos do extrato bancário."""
+  """Parser avançado para separar linhas e blocos do extrato do Banco do Brasil em colunas limpas."""
   lancamentos = []
-  padrao_data = re.compile(r"^\d{2}/\d{2}/\d{4}")
+  padrao_data = re.compile(r"\b\d{2}/\d{2}/\d{4}\b")
 
-  for linha in texto_linhas:
-    linha = linha.strip()
-    if not linha:
-      continue
+  # Junta todas as linhas num único texto para reprocessar blocos embolados
+  texto_completo = " ".join(texto_linhas)
 
-    # Verifica se a linha começa com uma data (indicando uma transação)
-    if padrao_data.match(linha):
-      partes = linha.split()
-      data = partes[0]
-      # O resto da linha contém os detalhes
-      detalhes = " ".join(partes[1:])
-      lancamentos.append({"Data": data, "Descrição / Histórico": detalhes})
+  # Procura por todas as ocorrências de datas no formato DD/MM/YYYY
+  matches_datas = list(padrao_data.finditer(texto_completo))
+
+  for i in range(len(matches_datas)):
+    inicio = matches_datas[i].start()
+    data_str = matches_datas[i].group(0)
+
+    # O fim do bloco é o início da próxima data ou o fim do texto
+    if i < len(matches_datas) - 1:
+      fim = matches_datas[i + 1].start()
+      bloco = texto_completo[inicio:fim]
     else:
-      # Linhas de continuação de histórico (ex: nome do favorecido ou detalhes)
-      if lancamentos and not padrao_data.match(linha):
-        # Ignora cabeçalhos genéricos
-        if (
-            "Extrato" not in linha
-            and "Agência" not in linha
-            and "Cliente" not in linha
-        ):
-          lancamentos[-1]["Descrição / Histórico"] += " " + linha
+      bloco = texto_completo[inicio:]
+
+    # Remove a data do início do bloco
+    conteudo_bloco = bloco.replace(data_str, "", 1).strip()
+
+    # Limpa múltiplos espaços e quebras
+    conteudo_bloco = re.sub(r"\s+", " ", conteudo_bloco)
+
+    if conteudo_bloco:
+      lancamentos.append({
+          "Data": data_str,
+          "Histórico e Lançamentos": conteudo_bloco,
+      })
 
   if lancamentos:
     return pd.DataFrame(lancamentos)
   else:
+    # Fallback caso não encontre datas estruturadas
     return pd.DataFrame({"Conteúdo Bruto": texto_linhas})
 
 
