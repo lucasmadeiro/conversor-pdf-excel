@@ -186,7 +186,7 @@ with col2:
             todas_linhas.append([f"--- PÁGINA {num_pag + 1} ---"])
             linhas_pagina = [f"--- PÁGINA {num_pag + 1} ---"]
             
-            # Extração de texto direta e otimizada para extratos e documentos textuais
+            # Extração de texto pura
             texto_pagina = page.extract_text()
 
             if texto_pagina:
@@ -200,7 +200,7 @@ with col2:
             )
 
           progress_bar.progress(80)
-          status_text.text("A gerar a planilha final...")
+          status_text.text("A gerada a planilha final...")
 
           if len(todas_linhas) > 1:
             df_completo = pd.DataFrame(
@@ -248,7 +248,7 @@ with col2:
             progress_bar.empty()
             status_text.empty()
             st.warning(
-                "⚠️ Não foi possível extrair texto legível deste documento."
+                "⚠️ O PDF foi lido, mas nenhum texto foi retornado. Verifique se o arquivo contém texto selecionável."
             )
 
       except Exception as e:
