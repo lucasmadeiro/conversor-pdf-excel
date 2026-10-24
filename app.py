@@ -110,24 +110,32 @@ st.markdown(
 
 
 def parser_universal_extrato_limpo(linhas_texto):
-  """Parser inteligente que filtra ruídos, cabeçalhos, rodapés e glossários, focando apenas nos lançamentos financeiros."""
+  """Parser universal aprimorado para isolar transações reais e bloquear glossários e rodapés."""
   transacoes = []
 
-  # Regex para detetar datas no início (ex: 29/11, 06/12, 01/12/2022)
+  # Regex para detetar datas no início da linha (DD/MM ou DD/MM/AAAA)
   regex_data = re.compile(r"^(\d{2}/\d{2}(?:/\d{2,4})?)\b")
 
-  # Termos que identificam lixo institucional, cabeçalhos, resumos e glossários de bancos
-  termos_ignorar = [
-      "extrato mensal",
+  # Termos que marcam o início do glossário ou rodapé em vários bancos (Itaú, BB, etc.)
+  gatilhos_parada = [
+      "principais siglas",
+      "para demais siglas",
+      "notas explicativas",
       "sac 0800",
       "ouvidoria",
       "central de atendimento",
-      "notas explicativas",
+      "deficiente auditivo",
+      "este material está disponível",
+      "transação efetuada com sucesso",
+  ]
+
+  # Termos institucionais de cabeçalho para ignorar
+  termos_ignorar = [
+      "extrato mensal",
       "página",
       "paginal",
       "total entradas",
       "total saídas",
-      "este material está disponível",
       "conta corrente e aplicações",
       "minha conta",
       "minha agência",
@@ -136,12 +144,6 @@ def parser_universal_extrato_limpo(linhas_texto):
       "banco do brasil",
       "cliente - conta",
       "balancete movimento",
-      "principais siglas utilizadas",
-      "adicionada a depositante",
-      "cadastrado de cheque",
-      "caixa eletrônico",
-      "transação realizada",
-      "título",
   ]
 
   gravando_lancamentos = False
@@ -154,53 +156,56 @@ def parser_universal_extrato_limpo(linhas_texto):
 
     linha_lower = linha_limpa.lower()
 
-    # Ignora linhas irrelevantes ou termos de rodapé/glossário
+    # Se encontrar qualquer termo de parada (glossário/rodapé), interrompe a captura de lançamentos
+    if any(parada in linha_lower for parada in gatilhos_parada):
+      gravando_lancamentos = False
+      continue
+
+    # Ignora cabeçalhos institucionais
     if any(termo in linha_lower for termo in termos_ignorar):
       continue
 
-    # Detecta o início real da tabela de lançamentos no extrato
+    # Ativa a gravação ao encontrar indicadores de início de extrato
     if "saldo anterior" in linha_lower or "lançamentos" in linha_lower:
       gravando_lancamentos = True
       continue
 
-    # Detecta o fim da tabela (geralmente onde começam as notas explicativas ou glossários)
-    if (
-        "principais siglas" in linha_lower
-        or "para demais siglas" in linha_lower
-        or "deficiente auditivo" in linha_lower
-    ):
-      gravando_lancamentos = False
-      continue
+    if not gravando_lancamentos:
+      # Se ainda não ativou por palavra-chave, mas achou uma data válida no formato de extrato, ativa automaticamente
+      if regex_data.match(linha_limpa):
+        gravando_lancamentos = True
 
-    # Se estamos dentro da zona de lançamentos ou se a linha tem uma data válida
-    match_data = regex_data.match(linha_limpa)
+    if gravando_lancamentos:
+      match_data = regex_data.match(linha_limpa)
 
-    if match_data:
-      gravando_lancamentos = (
-          True  # Ativa automaticamente se encontrar uma data de lançamento
-      )
-      data_atual = match_data.group(1)
-      conteudo = linha_limpa[match_data.end() :].strip()
+      if match_data:
+        data_atual = match_data.group(1)
+        conteudo = linha_limpa[match_data.end() :].strip()
 
-      transacoes.append({"Data": data_atual, "Histórico / Lançamento": conteudo})
-    elif gravando_lancamentos:
-      # Linha sem data explícita, mas dentro da tabela (continuação de histórico)
-      if transacoes:
-        transacoes.append(
-            {"Data": data_atual, "Histórico / Lançamento": linha_limpa}
-        )
+        # Remove índices de rodapé colados no final (ex: '-1', '-2' vindos do layout PDF)
+        conteudo = re.sub(r"-\d+$", "", conteudo).strip()
+
+        transacoes.append({"Data": data_atual, "Histórico / Lançamento": conteudo})
       else:
-        transacoes.append({"Data": "", "Histórico / Lançamento": linha_limpa})
+        # Linha complementar de histórico dentro da tabela
+        conteudo_limpo = re.sub(r"-\d+$", "", linha_limpa).strip()
+        if transacoes:
+          transacoes.append(
+              {"Data": data_atual, "Histórico / Lançamento": conteudo_limpo}
+          )
+        else:
+          transacoes.append({"Data": "", "Histórico / Lançamento": conteudo_limpo})
 
-  # Se o filtro restritivo foi muito rigoroso e não pegou nada, faz fallback para todas as linhas limpas
-  if not transacoes:
-    for linha in linhas_texto:
-      if linha.strip():
-        transacoes.append(
-            {"Data": "", "Histórico / Lançamento": linha.strip()}
-        )
-
-  return pd.DataFrame(transacoes)
+  if transacoes:
+    return pd.DataFrame(transacoes)
+  else:
+    # Fallback caso nenhuma regra restritiva seja acionada
+    fallback = [
+        {"Data": "", "Histórico / Lançamento": l.strip()}
+        for l in linhas_texto
+        if l.strip()
+    ]
+    return pd.DataFrame(fallback)
 
 
 # --- BARRA LATERAL ---
@@ -225,8 +230,8 @@ with st.sidebar:
 # --- CORPO PRINCIPAL ---
 st.title("⚡ Conversor Multibanco de PDF para Excel")
 st.markdown(
-    "<p class='upload-text'>Suporte universal para extratos de qualquer"
-    " instituição financeira.</p>",
+    "<p class='upload-text'>Suporte universal inteligente para extratos de"
+    " qualquer instituição financeira.</p>",
     unsafe_allow_html=True,
 )
 
