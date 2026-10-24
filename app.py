@@ -11,7 +11,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Estilo CSS Personalizado para centralizar e colorir o upload
+# Estilo CSS Personalizado para o botão de upload e layout
 st.markdown(
     """
     <style>
@@ -32,13 +32,19 @@ st.markdown(
             background-color: #1d4ed8;
             color: white;
         }
-        .upload-title {
-            text-align: center;
-            color: #2563eb;
-            font-weight: 700;
-            font-size: 1.3rem;
-            margin-bottom: 0.5rem;
+        
+        /* Personalização do Botão de Upload (Fundo Azul Médio) */
+        [data-testid="stFileUploader"] button {
+            background-color: #2563eb !important;
+            color: white !important;
+            border-radius: 8px !important;
+            border: none !important;
         }
+        [data-testid="stFileUploader"] button:hover {
+            background-color: #1d4ed8 !important;
+            color: white !important;
+        }
+
         .upload-text {
             font-size: 1.1rem;
             color: #4b5563;
@@ -81,13 +87,10 @@ st.markdown("---")
 col1, col2, col3 = st.columns([1, 6, 1])
 
 with col2:
-  # Mensagem de upload chamativa e centralizada em azul
-  st.markdown(
-      "<div class='upload-title'>📂 Selecione um arquivo PDF</div>",
-      unsafe_allow_html=True,
+  # O st.file_uploader já possui o seletor integrado; estilizamos o botão acima via CSS
+  uploaded_file = st.file_uploader(
+      "📂 Selecione um arquivo PDF", type=["pdf"], key="pdf"
   )
-
-  uploaded_file = st.file_uploader("", type=["pdf"], key="pdf")
 
   if uploaded_file is not None:
     st.markdown("---")
