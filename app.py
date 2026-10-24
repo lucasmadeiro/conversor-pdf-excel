@@ -9,7 +9,7 @@ st.set_page_config(
 
 st.title("📊 Conversor Inteligente de PDF para Excel")
 st.write(
-    "Envie o seu PDF. O sistema vai extrair todas as tabelas estruturadas detetadas no documento."
+    "Envie o seu PDF. O sistema está otimizado para detetar tabelas sem linhas visíveis (como extratos bancários)."
 )
 
 uploaded_file = st.file_uploader(
@@ -17,28 +17,34 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file is not None:
-  st.info("A analisar o documento e a extrair as tabelas...")
+  st.info("A analisar o documento com extração avançada baseada em texto...")
 
   try:
     with pdfplumber.open(uploaded_file) as pdf:
       all_dfs = []
 
-      # Varre todas as páginas do PDF
+      # Configuração essencial para documentos sem linhas desenhadas (extratos)
+      table_settings = {
+          "vertical_strategy": "text",
+          "horizontal_strategy": "text",
+          "snap_tolerance": 3,
+          "join_tolerance": 3,
+      }
+
       for i, page in enumerate(pdf.pages):
-        # Extrai TODAS as tabelas da página (no plural)
-        tables = page.extract_tables()
-        
+        # Extrai tabelas usando o posicionamento do texto
+        tables = page.extract_tables(table_settings)
+
         for table in tables:
           if table and len(table) > 1:
             headers = table[0]
             data = table[1:]
 
-            # Limpa colunas duplicadas ou vazias para evitar conflitos no Pandas
+            # Limpeza de cabeçalhos duplicados ou vazios
             clean_headers = []
             seen = {}
             for h in headers:
               h_str = str(h).strip() if h is not None and str(h).strip() != "" else "Coluna"
-              # Remove quebras de linha dentro do cabeçalho para o Excel ficar limpo
               h_str = h_str.replace("\n", " ")
               if h_str in seen:
                 seen[h_str] += 1
@@ -47,37 +53,47 @@ if uploaded_file is not None:
                 seen[h_str] = 0
               clean_headers.append(h_str)
 
-            df_temp = pd.DataFrame(data, columns=clean_headers)
-            all_dfs.append(df_temp)
+            # Ajusta o tamanho dos dados para coincidir com os cabeçalhos, se necessário
+            cleaned_data = []
+            for row in data:
+              if len(row) == len(clean_headers):
+                cleaned_data.append(row)
+              elif len(row) < len(clean_headers):
+                # Preenche colunas em falta com vazios
+                cleaned_data.append(row + [""] * (len(clean_headers) - len(row)))
+              else:
+                # Corta excessos se houver desfasamento
+                cleaned_data.append(row[:len(clean_headers)])
+
+            if cleaned_data:
+              df_temp = pd.DataFrame(cleaned_data, columns=clean_headers)
+              all_dfs.append(df_temp)
 
       if all_dfs:
-        st.success(f"Foram encontradas {len(all_dfs)} tabelas no documento!")
+        st.success(f"Foram detetadas e convertidas {len(all_dfs)} tabelas com sucesso!")
         
         # Mostra uma prévia da primeira tabela encontrada
         st.dataframe(all_dfs[0].head(10))
 
-        # Prepara o ficheiro Excel (.xlsx) contendo todas as tabelas empilhadas ou numa única estrutura
+        # Prepara o ficheiro Excel para download
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
-          # Se houver várias tabelas, podemos juntá-las ou exportar a principal. 
-          # Aqui juntamos as compatíveis ou guardamos a primeira como exemplo principal:
-          all_dfs[0].to_excel(writer, index=False, sheet_name="Tabela_Principal")
-          
-          # Se quiser guardar todas numa folha só ou concatenar:
-          combined_df = pd.concat(all_dfs, ignore_index=True, sort=False)
-          combined_df.to_excel(writer, index=False, sheet_name="Todas_As_Tabelas")
+          # Guarda cada tabela numa folha diferente ou junta-as
+          for idx, df_t in enumerate(all_dfs):
+            sheet_name = f"Tabela_{idx+1}"[:31]  # O Excel limita o nome das folhas a 31 caracteres
+            df_t.to_excel(writer, index=False, sheet_name=sheet_name)
 
         excel_data = output.getvalue()
 
         st.download_button(
-            label="📥 Baixar Planilha Excel Completa (.xlsx)",
+            label="📥 Baixar Planilha Excel (.xlsx)",
             data=excel_data,
-            file_name="extrato_convertido.xlsx",
+            file_name="extrato_bancario_convertido.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
       else:
         st.warning(
-            "Não foi encontrada nenhuma tabela estruturada neste PDF."
+            "Não foi possível estruturar tabelas automaticamente. Este extrato pode exigir uma leitura linha a linha."
         )
 
   except Exception as e:
