@@ -11,17 +11,14 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Estilo CSS Personalizado (Layout Compacto e Botão Dinâmico)
+# Estilo CSS Personalizado
 st.markdown(
     """
     <style>
-        /* Reduzir espaçamentos gerais da página */
         .main .block-container {
             padding-top: 2rem !important;
             padding-bottom: 2rem !important;
         }
-
-        /* BARRA LATERAL (Azul Claro Suave e Texto Legível) */
         [data-testid="stSidebar"] {
             background-color: #e0f2fe !important;
         }
@@ -39,8 +36,6 @@ st.markdown(
             color: #0369a1 !important;
             border: none;
         }
-
-        /* Botão Ativo (Azul) */
         .stButton>button {
             border-radius: 8px;
             font-weight: 600;
@@ -55,8 +50,6 @@ st.markdown(
             background-color: #1d4ed8;
             color: white;
         }
-        
-        /* Personalização do Botão de Upload para Azul Médio */
         [data-testid="stFileUploader"] button {
             background-color: #2563eb !important;
             color: white !important;
@@ -67,21 +60,15 @@ st.markdown(
             background-color: #1d4ed8 !important;
             color: white !important;
         }
-
-        /* Oculta o texto de limite de tamanho padrão */
         [data-testid="stFileUploader"] small {
             display: none !important;
         }
-
-        /* Retângulo de upload mais compacto e elegante */
         [data-testid="stFileUploader"] section {
             padding: 20px 15px !important;
             border: 2px dashed #93c5fd !important;
             border-radius: 10px !important;
             background-color: #ffffff !important;
         }
-
-        /* Cabeçalho Visual PDF -> Excel Compacto */
         .converter-header {
             display: flex;
             align-items: center;
@@ -107,7 +94,6 @@ st.markdown(
             color: #2563eb;
             font-weight: bold;
         }
-
         .upload-text {
             font-size: 1rem;
             color: #4b5563;
@@ -145,7 +131,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Cabeçalho Visual: PDF -> Excel Compacto
 st.markdown(
     """
     <div class="converter-header">
@@ -175,9 +160,7 @@ with col2:
 
   st.markdown("")
 
-  # Estado dinâmico do botão conforme a presença do arquivo
   if uploaded_file is None:
-    # Botão Cinza Desativado
     st.markdown(
         """
         <div style='background-color: #94a3b8; color: white; text-align: center; padding: 0.6rem 1rem; border-radius: 8px; font-weight: 600; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);'>
@@ -187,7 +170,6 @@ with col2:
         unsafe_allow_html=True,
     )
   else:
-    # Botão Azul Ativo para iniciar
     if st.button("🚀 Iniciar Processamento"):
       progress_bar = st.progress(0)
       status_text = st.empty()
@@ -205,7 +187,11 @@ with col2:
             todas_linhas.append(cabecalho_pag)
 
             linhas_pagina = [f"--- PÁGINA {num_pag + 1} ---"]
+            
+            # Tenta extração com layout, se falhar ou vier vazio, usa extração padrão
             texto_pagina = page.extract_text(layout=True)
+            if not texto_pagina or not texto_pagina.strip():
+              texto_pagina = page.extract_text()
 
             if texto_pagina:
               for linha in texto_pagina.split("\n"):
