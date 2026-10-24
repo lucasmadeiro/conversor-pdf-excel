@@ -11,13 +11,14 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Estilo CSS Personalizado Completo
+# Estilo CSS Personalizado (Layout Compacto e Botão Dinâmico)
 st.markdown(
     """
     <style>
-        /* Fundo geral da página */
-        .main {
-            background-color: #f8fafc;
+        /* Reduzir espaçamentos gerais da página */
+        .main .block-container {
+            padding-top: 2rem !important;
+            padding-bottom: 2rem !important;
         }
 
         /* BARRA LATERAL (Azul Claro Suave e Texto Legível) */
@@ -39,13 +40,13 @@ st.markdown(
             border: none;
         }
 
-        /* Botão de Iniciar Processamento */
+        /* Botão Ativo (Azul) */
         .stButton>button {
             border-radius: 8px;
             font-weight: 600;
             background-color: #2563eb;
             color: white;
-            padding: 0.6rem 1rem;
+            padding: 0.5rem 1rem;
             border: none;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
             width: 100%;
@@ -72,45 +73,46 @@ st.markdown(
             display: none !important;
         }
 
-        /* Aumentar o tamanho e destaque do retângulo de upload */
+        /* Retângulo de upload mais compacto e elegante */
         [data-testid="stFileUploader"] section {
-            padding: 40px 20px !important;
+            padding: 20px 15px !important;
             border: 2px dashed #93c5fd !important;
-            border-radius: 12px !important;
+            border-radius: 10px !important;
             background-color: #ffffff !important;
         }
 
-        /* Cabeçalho Visual PDF -> Excel */
+        /* Cabeçalho Visual PDF -> Excel Compacto */
         .converter-header {
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 20px;
-            margin-bottom: 20px;
+            gap: 15px;
+            margin-bottom: 10px;
         }
         .badge-file {
             background-color: #ffffff;
-            padding: 10px 20px;
-            border-radius: 10px;
+            padding: 6px 15px;
+            border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.05);
             font-weight: 700;
-            font-size: 1.1rem;
+            font-size: 1rem;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
         }
         .badge-pdf { color: #dc2626; border: 2px solid #fee2e2; }
         .badge-excel { color: #16a34a; border: 2px solid #dcfce7; }
         .arrow-icon {
-            font-size: 1.5rem;
+            font-size: 1.2rem;
             color: #2563eb;
             font-weight: bold;
         }
 
         .upload-text {
-            font-size: 1.1rem;
+            font-size: 1rem;
             color: #4b5563;
             text-align: center;
+            margin-bottom: 1rem;
         }
     </style>
 """,
@@ -119,15 +121,14 @@ st.markdown(
 
 # --- BARRA LATERAL ---
 with st.sidebar:
-  # Logo inserida no topo da barra lateral
   st.image("logo.png", use_container_width=True)
   st.markdown("---")
   st.title("Painel de Controle")
   st.markdown("---")
   st.markdown("### 💡 Como Funciona")
   st.info(
-      "1. Selecione o seu ficheiro PDF na área central.\n2. Escolha o formato"
-      " de apresentação dos dados.\n3. Clique em **Iniciar Processamento**."
+      "1. Selecione o ficheiro PDF.\n2. Escolha o formato de apresentação.\n3."
+      " Clique em **Iniciar Processamento**."
   )
   st.markdown("---")
   st.markdown(
@@ -144,9 +145,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.markdown("---")
-
-# Cabeçalho Visual: PDF -> Excel
+# Cabeçalho Visual: PDF -> Excel Compacto
 st.markdown(
     """
     <div class="converter-header">
@@ -163,23 +162,32 @@ col1, col2, col3 = st.columns([1, 6, 1])
 with col2:
   uploaded_file = st.file_uploader("", type=["pdf"], key="pdf")
 
-  if uploaded_file is not None:
-    st.markdown("---")
-    st.markdown("### Como apresentar os dados?")
+  st.markdown("### Como apresentar os dados?")
 
-    # Escolha do formato ANTES de processar
-    modo_export = st.radio(
-        "Selecione o formato de saída:",
-        [
-            "📑 Tabela única (Todos os dados numa só página contínua)",
-            "📂 Várias tabelas (Separar cada página em abas diferentes)",
-        ],
-        label_visibility="collapsed",
+  modo_export = st.radio(
+      "Selecione o formato de saída:",
+      [
+          "📑 Tabela única (Todos os dados numa só página contínua)",
+          "📂 Várias tabelas (Separar cada página em abas diferentes)",
+      ],
+      label_visibility="collapsed",
+  )
+
+  st.markdown("")
+
+  # Estado dinâmico do botão conforme a presença do arquivo
+  if uploaded_file is None:
+    # Botão Cinza Desativado
+    st.markdown(
+        """
+        <div style='background-color: #94a3b8; color: white; text-align: center; padding: 0.6rem 1rem; border-radius: 8px; font-weight: 600; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);'>
+            ⏳ Aguardando arquivo
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
-
-    st.markdown("")
-
-    # Botão explícito para iniciar
+  else:
+    # Botão Azul Ativo para iniciar
     if st.button("🚀 Iniciar Processamento"):
       progress_bar = st.progress(0)
       status_text = st.empty()
@@ -223,14 +231,13 @@ with col2:
 
             st.success("✨ Processamento concluído com sucesso!")
 
-            # Abas visuais do resultado
             tab1, tab2 = st.tabs(
                 ["📋 Pré-visualização", "📥 Central de Download"]
             )
 
             with tab1:
               st.markdown("### Visualização prévia dos dados:")
-              st.dataframe(df_completo, use_container_width=True, height=400)
+              st.dataframe(df_completo, use_container_width=True, height=350)
 
             with tab2:
               st.markdown("### O seu ficheiro está pronto para ser baixado!")
