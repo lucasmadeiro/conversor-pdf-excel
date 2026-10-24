@@ -109,44 +109,50 @@ st.markdown(
 )
 
 
-def estruturar_extrato_banco_brasil(texto_linhas):
-  """Parser avançado para separar linhas e blocos do extrato do Banco do Brasil em colunas limpas."""
+def estruturar_extrato_linha_por_linha(texto_linhas):
+  """Processa o extrato linha por linha para evitar blocos aglomerados."""
   lancamentos = []
-  padrao_data = re.compile(r"\b\d{2}/\d{2}/\d{4}\b")
+  padrao_data = re.compile(r"^\d{2}/\d{2}/\d{4}")
+  ultima_data = ""
 
-  # Junta todas as linhas num único texto para reprocessar blocos embolados
-  texto_completo = " ".join(texto_linhas)
+  for linha in texto_linhas:
+    linha = linha.strip()
+    if not linha or "--- PÁGINA" in linha:
+      continue
 
-  # Procura por todas as ocorrências de datas no formato DD/MM/YYYY
-  matches_datas = list(padrao_data.finditer(texto_completo))
+    # Ignora cabeçalhos irrelevantes do topo
+    if any(
+        cab in linha
+        for cab in [
+            "Extrato de Conta",
+            "Cliente",
+            "Agência",
+            "Conta corrente",
+            "Período do",
+            "Dt.",
+            "balancete",
+        ]
+    ):
+      continue
 
-  for i in range(len(matches_datas)):
-    inicio = matches_datas[i].start()
-    data_str = matches_datas[i].group(0)
-
-    # O fim do bloco é o início da próxima data ou o fim do texto
-    if i < len(matches_datas) - 1:
-      fim = matches_datas[i + 1].start()
-      bloco = texto_completo[inicio:fim]
+    # Se a linha começa com data, guarda como a data atual
+    match_data = padrao_data.match(linha)
+    if match_data:
+      ultima_data = match_data.group(0)
+      resto = linha.replace(ultima_data, "", 1).strip()
+      lancamentos.append({"Data": ultima_data, "Histórico / Lançamento": resto})
     else:
-      bloco = texto_completo[inicio:]
-
-    # Remove a data do início do bloco
-    conteudo_bloco = bloco.replace(data_str, "", 1).strip()
-
-    # Limpa múltiplos espaços e quebras
-    conteudo_bloco = re.sub(r"\s+", " ", conteudo_bloco)
-
-    if conteudo_bloco:
-      lancamentos.append({
-          "Data": data_str,
-          "Histórico e Lançamentos": conteudo_bloco,
-      })
+      # Se não tem data, vincula à última data detetada ou cria linha limpa
+      if lancamentos:
+        lancamentos.append(
+            {"Data": ultima_data, "Histórico / Lançamento": linha}
+        )
+      else:
+        lancamentos.append({"Data": "", "Histórico / Lançamento": linha})
 
   if lancamentos:
     return pd.DataFrame(lancamentos)
   else:
-    # Fallback caso não encontre datas estruturadas
     return pd.DataFrame({"Conteúdo Bruto": texto_linhas})
 
 
@@ -158,8 +164,8 @@ with st.sidebar:
   st.markdown("---")
   st.markdown("### 💡 Como Funciona")
   st.info(
-      "1. Selecione o ficheiro PDF.\n2. Ative o **OCR** para documentos"
-      " escaneados.\n3. Clique em **Iniciar Processamento**."
+      "1. Selecione o ficheiro PDF.\n2. Ative o **OCR** se necessário.\n3."
+      " Clique em **Iniciar Processamento**."
   )
   st.markdown("---")
   st.markdown(
@@ -245,7 +251,7 @@ with col2:
                   linhas_pag.append(linha.strip())
 
             paginas_dict[f"Pagina_{num_pag + 1}"] = (
-                estruturar_extrato_banco_brasil(linhas_pag)
+                estruturar_extrato_linha_por_linha(linhas_pag)
             )
         else:
           status_text.text("A ler o documento PDF...")
@@ -262,13 +268,13 @@ with col2:
                     linhas_pag.append(linha.strip())
 
               paginas_dict[f"Pagina_{num_pag + 1}"] = (
-                  estruturar_extrato_banco_brasil(linhas_pag)
+                  estruturar_extrato_linha_por_linha(linhas_pag)
               )
 
         progress_bar.progress(80)
         status_text.text("A gerar a planilha final organizada...")
 
-        df_completo = estruturar_extrato_banco_brasil(todas_linhas_brutas)
+        df_completo = estruturar_extrato_linha_por_linha(todas_linhas_brutas)
 
         if not df_completo.empty:
           progress_bar.progress(100)
