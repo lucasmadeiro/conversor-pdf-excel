@@ -1,7 +1,6 @@
 import io
 import pandas as pd
 import pdfplumber
-from pypdf import PdfReader
 import streamlit as st
 
 # Configuração da Página
@@ -179,38 +178,33 @@ with col2:
       progress_bar.progress(30)
 
       try:
-        paginas_dict = {}
-        todas_linhas = []
+        with pdfplumber.open(uploaded_file) as pdf:
+          paginas_dict = {}
+          todas_linhas = []
 
-        # Faz uma cópia dos bytes para reutilizar nos leitores
-        file_bytes = uploaded_file.getvalue()
-
-        # Tenta a extração principal usando PyPDF (altamente compatível com extratos)
-        reader = PdfReader(io.BytesIO(file_bytes))
-        for num_pag, page in enumerate(reader.pages):
-          todas_linhas.append([f"--- PÁGINA {num_pag + 1} ---"])
-          linhas_pagina = [f"--- PÁGINA {num_pag + 1} ---"]
-
-          texto_pagina = page.extract_text()
-          if texto_pagina:
-            for linha in texto_pagina.split("\n"):
-              if linha.strip():
-                todas_linhas.append([linha.strip()])
-                linhas_pagina.append(linha.strip())
-
-          paginas_dict[f"Pagina_{num_pag + 1}"] = pd.DataFrame(
-              linhas_pagina, columns=["Conteúdo do Documento"]
-          )
-
-        # Se o pypdf não encontrou nada, tenta com pdfplumber como redundância
-        if len(todas_linhas) <= len(reader.pages):
-          with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-            todas_linhas = []
-            paginas_dict = {}
-            for num_pag, page in enumerate(pdf.pages):
-              todas_linhas.append([f"--- PÁGINA {num_pag + 1} ---"])
-              linhas_pagina = [f"--- PÁGINA {num_pag + 1} ---"]
-
+          for num_pag, page in enumerate(pdf.pages):
+            todas_linhas.append([f"--- PÁGINA {num_pag + 1} ---"])
+            linhas_pagina = [f"--- PÁGINA {num_pag + 1} ---"]
+            
+            # Extração de texto por caracteres e posições (ideal para extratos bancários)
+            chars = page.chars
+            if chars:
+              # Agrupa os caracteres horizontalmente por linha (tolerância vertical de 4 pontos)
+              chars_sorted = sorted(chars, key=lambda c: (round(c['top'] / 4) * 4, c['x0']))
+              lines_dict = {}
+              for c in chars_sorted:
+                line_key = round(c['top'] / 4) * 4
+                if line_key not in lines_dict:
+                  lines_dict[line_key] = []
+                lines_dict[line_key].append(c['text'])
+              
+              for l_key in sorted(lines_dict.keys()):
+                linha_texto = "".join(lines_dict[l_key]).strip()
+                if linha_texto:
+                  todas_linhas.append([linha_texto])
+                  linhas_pagina.append(linha_texto)
+            else:
+              # Fallback caso os caracteres venham vazios
               texto_pagina = page.extract_text()
               if texto_pagina:
                 for linha in texto_pagina.split("\n"):
@@ -218,62 +212,61 @@ with col2:
                     todas_linhas.append([linha.strip()])
                     linhas_pagina.append(linha.strip())
 
-              paginas_dict[f"Pagina_{num_pag + 1}"] = pd.DataFrame(
-                  linhas_pagina, columns=["Conteúdo do Documento"]
-              )
-
-        progress_bar.progress(80)
-        status_text.text("A gerar a planilha final...")
-
-        if len(todas_linhas) > len(reader.pages):
-          df_completo = pd.DataFrame(
-              todas_linhas, columns=["Conteúdo do Documento"]
-          )
-
-          progress_bar.progress(100)
-          status_text.empty()
-          progress_bar.empty()
-
-          st.success("✨ Processamento concluído com sucesso!")
-
-          tab1, tab2 = st.tabs(
-              ["📋 Pré-visualização", "📥 Central de Download"]
-          )
-
-          with tab1:
-            st.markdown("### Visualização prévia dos dados:")
-            st.dataframe(df_completo, use_container_width=True, height=350)
-
-          with tab2:
-            st.markdown("### O seu ficheiro está pronto para ser baixado!")
-
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine="openpyxl") as writer:
-              if "Tabela única" in modo_export:
-                df_completo.to_excel(
-                    writer, index=False, sheet_name="Documento_Completo"
-                )
-              else:
-                for nome_aba, df_p in paginas_dict.items():
-                  df_p.to_excel(writer, index=False, sheet_name=nome_aba)
-
-            excel_data = output.getvalue()
-
-            st.download_button(
-                label="📥 Baixar Planilha Excel (.xlsx)",
-                data=excel_data,
-                file_name="documento_convertido.xlsx",
-                mime=(
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                ),
+            paginas_dict[f"Pagina_{num_pag + 1}"] = pd.DataFrame(
+                linhas_pagina, columns=["Conteúdo do Documento"]
             )
-        else:
-          progress_bar.empty()
-          status_text.empty()
-          st.warning(
-              "⚠️ Não foi possível extrair texto legível deste documento."
-              " Verifique se o PDF contém texto selecionável."
-          )
+
+          progress_bar.progress(80)
+          status_text.text("A gerar a planilha final...")
+
+          if len(todas_linhas) > 1:
+            df_completo = pd.DataFrame(
+                todas_linhas, columns=["Conteúdo do Documento"]
+            )
+
+            progress_bar.progress(100)
+            status_text.empty()
+            progress_bar.empty()
+
+            st.success("✨ Processamento concluído com sucesso!")
+
+            tab1, tab2 = st.tabs(
+                ["📋 Pré-visualização", "📥 Central de Download"]
+            )
+
+            with tab1:
+              st.markdown("### Visualização prévia dos dados:")
+              st.dataframe(df_completo, use_container_width=True, height=350)
+
+            with tab2:
+              st.markdown("### O seu ficheiro está pronto para ser baixado!")
+
+              output = io.BytesIO()
+              with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                if "Tabela única" in modo_export:
+                  df_completo.to_excel(
+                      writer, index=False, sheet_name="Documento_Completo"
+                  )
+                else:
+                  for nome_aba, df_p in paginas_dict.items():
+                    df_p.to_excel(writer, index=False, sheet_name=nome_aba)
+
+              excel_data = output.getvalue()
+
+              st.download_button(
+                  label="📥 Baixar Planilha Excel (.xlsx)",
+                  data=excel_data,
+                  file_name="documento_convertido.xlsx",
+                  mime=(
+                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                  ),
+              )
+          else:
+            progress_bar.empty()
+            status_text.empty()
+            st.warning(
+                "⚠️ Não foi possível extrair texto legível deste documento."
+            )
 
       except Exception as e:
         progress_bar.empty()
