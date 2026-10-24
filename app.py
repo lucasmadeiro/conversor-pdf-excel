@@ -11,7 +11,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Estilo CSS Personalizado e script para renomear o botão de upload
+# Estilo CSS Personalizado
 st.markdown(
     """
     <style>
@@ -33,7 +33,7 @@ st.markdown(
             color: white;
         }
         
-        /* Personalização do Botão de Upload (Fundo Azul Médio) */
+        /* Personalização do Botão de Upload para Azul Médio */
         [data-testid="stFileUploader"] button {
             background-color: #2563eb !important;
             color: white !important;
@@ -45,25 +45,21 @@ st.markdown(
             color: white !important;
         }
 
+        /* Título personalizado e centralizado para a seleção */
+        .upload-label {
+            text-align: center;
+            color: #2563eb;
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
         .upload-text {
             font-size: 1.1rem;
             color: #4b5563;
             text-align: center;
         }
     </style>
-
-    <!-- Script em JavaScript para alterar o texto interno do botão de Upload automaticamente -->
-    <script>
-        const observer = new MutationObserver(() => {
-            const uploadButtons = document.querySelectorAll('[data-testid="stFileUploader"] button');
-            uploadButtons.forEach(button => {
-                if (button.innerText.includes("Upload")) {
-                    button.innerHTML = button.innerHTML.replace("Upload", "Selecionar um arquivo");
-                }
-            });
-        });
-        observer.observe(document.body, { childList: true, subtree: true });
-    </script>
 """,
     unsafe_allow_html=True,
 )
@@ -100,7 +96,12 @@ st.markdown("---")
 col1, col2, col3 = st.columns([1, 6, 1])
 
 with col2:
-  # O rótulo externo foi limpo; o botão agora exibe "Selecionar um arquivo" via script
+  # Rótulo HTML centralizado e destacado em azul logo acima do uploader
+  st.markdown(
+      "<div class='upload-label'>📁 Selecionar um arquivo PDF</div>",
+      unsafe_allow_html=True,
+  )
+
   uploaded_file = st.file_uploader("", type=["pdf"], key="pdf")
 
   if uploaded_file is not None:
