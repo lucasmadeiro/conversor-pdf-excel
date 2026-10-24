@@ -11,7 +11,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Estilo CSS Personalizado para o botão de upload e layout
+# Estilo CSS Personalizado e script para renomear o botão de upload
 st.markdown(
     """
     <style>
@@ -51,6 +51,19 @@ st.markdown(
             text-align: center;
         }
     </style>
+
+    <!-- Script em JavaScript para alterar o texto interno do botão de Upload automaticamente -->
+    <script>
+        const observer = new MutationObserver(() => {
+            const uploadButtons = document.querySelectorAll('[data-testid="stFileUploader"] button');
+            uploadButtons.forEach(button => {
+                if (button.innerText.includes("Upload")) {
+                    button.innerHTML = button.innerHTML.replace("Upload", "Selecionar um arquivo");
+                }
+            });
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+    </script>
 """,
     unsafe_allow_html=True,
 )
@@ -87,10 +100,8 @@ st.markdown("---")
 col1, col2, col3 = st.columns([1, 6, 1])
 
 with col2:
-  # O st.file_uploader já possui o seletor integrado; estilizamos o botão acima via CSS
-  uploaded_file = st.file_uploader(
-      "📂 Selecione um arquivo PDF", type=["pdf"], key="pdf"
-  )
+  # O rótulo externo foi limpo; o botão agora exibe "Selecionar um arquivo" via script
+  uploaded_file = st.file_uploader("", type=["pdf"], key="pdf")
 
   if uploaded_file is not None:
     st.markdown("---")
