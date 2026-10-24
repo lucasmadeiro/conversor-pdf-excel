@@ -1,4 +1,5 @@
 import io
+import re
 from pdf2image import convert_from_bytes
 import pandas as pd
 import pytesseract
@@ -107,6 +108,49 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+
+def parsear_extrato_bancario(texto_linhas):
+  """Função inteligente para transformar linhas de texto bruto de extratos em colunas estruturadas."""
+  dados_estruturados = []
+
+  # Expressão regular para detetar datas (ex: 25/11/2022)
+  padrao_data = re.compile(r"\b\d{2}/\d{2}/\d{4}\b")
+
+  for linha in texto_linhas:
+    linha = linha.strip()
+    if not linha or "--- PÁGINA" in linha or "Extrato" in linha:
+      continue
+
+    # Tenta detetar se a linha começa com uma data
+    match_data = padrao_data.search(linha)
+    if match_data:
+      data_encontrada = match_data.group(0)
+      # Remove a data do resto do texto para analisar o histórico e valores
+      resto = linha.replace(data_encontrada, "").strip()
+
+      dados_estruturados.append(
+          {
+              "Data": data_encontrada,
+              "Histórico e Detalhes": resto,
+          }
+      )
+    else:
+      # Linhas complementares (como descrições longas de lançamentos)
+      if dados_estruturados:
+        dados_estruturados[-1]["Histórico e Detalhes"] += " " + linha
+      else:
+        dados_estruturados.append(
+            {"Data": "", "Histórico e Detalhes": linha}
+        )
+
+  if dados_estruturados:
+    return pd.DataFrame(dados_estruturados)
+  else:
+    return pd.DataFrame(
+        {"Conteúdo do Documento": texto_linhas}
+    )  # Fallback se não encontrar padrão
+
+
 # --- BARRA LATERAL ---
 with st.sidebar:
   st.image("logo.png", use_container_width=True)
@@ -115,9 +159,8 @@ with st.sidebar:
   st.markdown("---")
   st.markdown("### 💡 Como Funciona")
   st.info(
-      "1. Selecione o ficheiro PDF.\n2. Escolha se deseja ativar o **OCR** (para"
-      " PDFs escaneados).\n3. Escolha o formato de saída e clique em **Iniciar"
-      " Processamento**."
+      "1. Selecione o ficheiro PDF.\n2. Ative o **OCR** se o documento for"
+      " escaneado.\n3. Clique em **Iniciar Processamento**."
   )
   st.markdown("---")
   st.markdown(
@@ -152,14 +195,11 @@ with col2:
 
   st.markdown("### Configurações de Extração")
 
-  # Caixa de seleção para o utilizador ativar o OCR manualmente quando precisar
   usar_ocr = st.checkbox(
       "🔍 Ativar OCR (Recomendado para PDFs escaneados ou sem texto"
       " selecionável)",
-      value=False,
+      value=True,  # Deixamos ativado por padrão para facilitar os seus testes com o extrato BB
   )
-
-  st.markdown("### Como apresentar os dados?")
 
   modo_export = st.radio(
       "Selecione o formato de saída:",
@@ -187,84 +227,69 @@ with col2:
       status_text = st.empty()
 
       paginas_dict = {}
-      todas_linhas = []
+      todas_linhas_brutas = []
       file_bytes = uploaded_file.getvalue()
 
       try:
         if usar_ocr:
-          status_text.text(
-              "A processar páginas via OCR (Reconhecimento Ótico)..."
-          )
+          status_text.text("A processar páginas via OCR (Reconhecimento)...")
           progress_bar.progress(30)
 
           images = convert_from_bytes(file_bytes)
           for num_pag, image in enumerate(images):
-            todas_linhas.append([f"--- PÁGINA {num_pag + 1} ---"])
-            linhas_pagina = [f"--- PÁGINA {num_pag + 1} ---"]
-
+            todas_linhas_brutas.append(f"--- PÁGINA {num_pag + 1} ---")
             texto_ocr = pytesseract.image_to_string(image, lang="por")
             if texto_ocr:
               for linha in texto_ocr.split("\n"):
                 if linha.strip():
-                  todas_linhas.append([linha.strip()])
-                  linhas_pagina.append(linha.strip())
+                  todas_linhas_brutas.append(linha.strip())
 
-            paginas_dict[f"Pagina_{num_pag + 1}"] = pd.DataFrame(
-                linhas_pagina, columns=["Conteúdo do Documento"]
-            )
+            df_pag = parsear_extrato_bancario(todas_linhas_brutas)
+            paginas_dict[f"Pagina_{num_pag + 1}"] = df_pag
         else:
           status_text.text("A ler o documento PDF...")
           progress_bar.progress(30)
 
           with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
             for num_pag, page in enumerate(pdf.pages):
-              todas_linhas.append([f"--- PÁGINA {num_pag + 1} ---"])
-              linhas_pagina = [f"--- PÁGINA {num_pag + 1} ---"]
-
+              todas_linhas_brutas.append(f"--- PÁGINA {num_pag + 1} ---")
               texto_pagina = page.extract_text()
               if texto_pagina:
                 for linha in texto_pagina.split("\n"):
                   if linha.strip():
-                    todas_linhas.append([linha.strip()])
-                    linhas_pagina.append(linha.strip())
+                    todas_linhas_brutas.append(linha.strip())
 
-              paginas_dict[f"Pagina_{num_pag + 1}"] = pd.DataFrame(
-                  linhas_pagina, columns=["Conteúdo do Documento"]
-              )
+              df_pag = parsear_extrato_bancario(todas_linhas_brutas)
+              paginas_dict[f"Pagina_{num_pag + 1}"] = df_pag
 
         progress_bar.progress(80)
-        status_text.text("A gerar a planilha final...")
+        status_text.text("A gerar a planilha final estruturada...")
 
-        if len(todas_linhas) > 1:
-          df_completo = pd.DataFrame(
-              todas_linhas, columns=["Conteúdo do Documento"]
-          )
+        df_completo = parsear_extrato_bancario(todas_linhas_brutas)
 
+        if not df_completo.empty:
           progress_bar.progress(100)
           status_text.empty()
           progress_bar.empty()
 
-          st.success(
-              "✨ Processamento concluído com sucesso"
-              f"{' via OCR' if usar_ocr else ''}!"
-          )
+          st.success("✨ Processamento estruturado concluído com sucesso!")
 
           tab1, tab2 = st.tabs(
               ["📋 Pré-visualização", "📥 Central de Download"]
           )
 
           with tab1:
-            st.markdown("### Visualização prévia dos dados:")
+            st.markdown("### Visualização prévia estruturada:")
             st.dataframe(df_completo, use_container_width=True, height=350)
 
           with tab2:
-            st.markdown("### O seu ficheiro está pronto para ser baixado!")
+            st.markdown("### O seu ficheiro formatado está pronto!")
 
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine="openpyxl") as writer:
               if "Tabela única" in modo_export:
                 df_completo.to_excel(
-                    writer, index=False, sheet_name="Documento_Completo"
+                    writer, index=False, sheet_name="Extrato_Estruturado"
                 )
               else:
                 for nome_aba, df_p in paginas_dict.items():
@@ -273,9 +298,9 @@ with col2:
             excel_data = output.getvalue()
 
             st.download_button(
-                label="📥 Baixar Planilha Excel (.xlsx)",
+                label="📥 Baixar Planilha Excel Estruturada (.xlsx)",
                 data=excel_data,
-                file_name="documento_convertido.xlsx",
+                file_name="extrato_convertido_estruturado.xlsx",
                 mime=(
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 ),
@@ -283,10 +308,7 @@ with col2:
         else:
           progress_bar.empty()
           status_text.empty()
-          st.warning(
-              "⚠️ Não foi possível extrair texto. Se o PDF for escaneado,"
-              " marque a opção **Ativar OCR** acima."
-          )
+          st.warning("⚠️ Não foi possível estruturar os dados deste documento.")
 
       except Exception as e:
         progress_bar.empty()
