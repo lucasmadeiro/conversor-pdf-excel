@@ -30,9 +30,24 @@ if uploaded_file is not None:
       # Percorre todas as páginas do PDF procurando tabelas
       for i, page in enumerate(pdf.pages):
         table = page.extract_table()
-        if table:
-          # Transforma a tabela encontrada em um DataFrame (tabela do Excel)
-          df_temp = pd.DataFrame(table[1:], columns=table[0])
+        if table and len(table) > 1:
+          # Define a primeira linha como cabeçalho e o resto como dados
+          headers = table[0]
+          data = table[1:]
+
+          # Corrige nomes de colunas vazios ou duplicados automaticamente
+          clean_headers = []
+          seen = {}
+          for h in headers:
+            h_str = str(h).strip() if h is not None and str(h).strip() != "" else "Coluna"
+            if h_str in seen:
+              seen[h_str] += 1
+              h_str = f"{h_str}_{seen[h_str]}"
+            else:
+              seen[h_str] = 0
+            clean_headers.append(h_str)
+
+          df_temp = pd.DataFrame(data, columns=clean_headers)
           all_dfs.append(df_temp)
 
       if all_dfs:
@@ -44,7 +59,7 @@ if uploaded_file is not None:
             final_df.head(10)
         )  # Mostra uma prévia das primeiras linhas
 
-        # Prepara o arquivo Excel (.xlsx) para download usando a biblioteca io BytesIO
+        # Prepara o arquivo Excel (.xlsx) para download
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
           final_df.to_excel(writer, index=False, sheet_name="Dados_PDF")
