@@ -11,7 +11,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Estilo CSS Personalizado
+# Estilo CSS Personalizado (incluindo a remoção do texto de limite de tamanho)
 st.markdown(
     """
     <style>
@@ -43,6 +43,11 @@ st.markdown(
         [data-testid="stFileUploader"] button:hover {
             background-color: #1d4ed8 !important;
             color: white !important;
+        }
+
+        /* Oculta o texto de limite de tamanho (200MB per file • PDF) */
+        [data-testid="stFileUploader"] small {
+            display: none !important;
         }
 
         /* Título personalizado e centralizado para a seleção */
