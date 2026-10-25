@@ -110,7 +110,7 @@ st.markdown(
 
 
 def extrair_tabela_banco_brasil(file_bytes):
-  """Parser dedicado do Banco do Brasil (Mantido 100% intacto e funcional)."""
+  """Parser dedicado do Banco do Brasil (Mantém a coluna Documento)."""
   lancamentos = []
   padrao_data = re.compile(r"^(\d{2}/\d{2}/\d{4})")
 
@@ -252,7 +252,6 @@ def extrair_itau_consolidado(file_bytes):
             elementos_uteis = [c for c in celulas[1:] if c != data]
 
             valor = ""
-            # No extrato consolidado, os valores aparecem com indicador de débito (-) ou crédito
             valores = [
                 e
                 for e in elementos_uteis
@@ -270,7 +269,6 @@ def extrair_itau_consolidado(file_bytes):
               lancamentos.append({
                   "Data": data,
                   "Histórico": historico,
-                  "Documento": "",
                   "Valor (R$)": valor,
               })
           else:
@@ -280,12 +278,12 @@ def extrair_itau_consolidado(file_bytes):
   return (
       pd.DataFrame(lancamentos)
       if lancamentos
-      else pd.DataFrame(columns=["Data", "Histórico", "Documento", "Valor (R$)"])
+      else pd.DataFrame(columns=["Data", "Histórico", "Valor (R$)"])
   )
 
 
 def extrair_itau_movimentacao(file_bytes):
-  """Parser dedicado para o Extrato de Movimentação (Conta Corrente) do Itaú."""
+  """Parser dedicado para o Extrato de Movimentação (Conta Corrente) do Itaú sem a coluna Documento."""
   lancamentos = []
   padrao_data = re.compile(r"^(\d{2}/\d{2}/\d{4})")
 
@@ -307,7 +305,6 @@ def extrair_itau_movimentacao(file_bytes):
           if "SALDO DO DIA" in resto.upper():
             continue
 
-          # Extrai valores monetários no final da linha (ex: -3.675,40 ou 8.000,00)
           partes = resto.split()
           valor = ""
           hist_partes = []
@@ -324,14 +321,13 @@ def extrair_itau_movimentacao(file_bytes):
             lancamentos.append({
                 "Data": data,
                 "Histórico": historico,
-                "Documento": "",
                 "Valor (R$)": valor,
             })
 
   return (
       pd.DataFrame(lancamentos)
       if lancamentos
-      else pd.DataFrame(columns=["Data", "Histórico", "Documento", "Valor (R$)"])
+      else pd.DataFrame(columns=["Data", "Histórico", "Valor (R$)"])
   )
 
 
@@ -347,7 +343,6 @@ def parser_generico(file_bytes):
             lancamentos.append({
                 "Data": "",
                 "Histórico": linha.strip(),
-                "Documento": "",
                 "Valor (R$)": "",
             })
   return pd.DataFrame(lancamentos)
@@ -361,7 +356,7 @@ with st.sidebar:
   st.markdown("---")
   st.markdown("### 💡 Como Funciona")
   st.info(
-      "1. Selecione a instituição/modelo.\n2. Envie o extrato em PDF.\n3. Ative"
+      "1. Selecione a instituição / modelo.\n2. Envie o extrato em PDF.\n3. Ative"
       " o **OCR** se necessário.\n4. Clique em **Iniciar Processamento**."
   )
   st.markdown("---")
@@ -438,7 +433,6 @@ with col2:
       progress_bar = st.progress(0)
       status_text = st.empty()
 
-      paginas_dict = {}
       file_bytes = uploaded_file.getvalue()
 
       try:
