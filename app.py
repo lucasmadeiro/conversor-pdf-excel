@@ -1,8 +1,8 @@
 import io
 import re
+from pdf2image import convert_from_bytes
 import pandas as pd
 import pdfplumber
-from pdf2image import convert_from_bytes
 import pytesseract
 import streamlit as st
 
@@ -116,18 +116,19 @@ def extrair_tabela_banco_brasil(file_bytes):
 
   with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
     for page in pdf.pages:
-      # Extrai as tabelas usando as linhas estruturais do PDF
       tabelas = page.extract_tables()
       for tabela in tabelas:
         for linha in tabela:
-          # Limpa valores nulos ou vazios
-          celulas = [str(c).strip() for c in linha if c is not None and str(c).strip() != ""]
+          celulas = [
+              str(c).strip()
+              for c in linha
+              if c is not None and str(c).strip() != ""
+          ]
           if not celulas:
             continue
 
           texto_linha = " ".join(celulas)
-          
-          # Ignora cabeçalhos institucionais
+
           if any(
               termo in texto_linha.lower()
               for termo in [
@@ -148,7 +149,6 @@ def extrair_tabela_banco_brasil(file_bytes):
           ):
             continue
 
-          # Verifica se a linha começa com uma data válida
           match_data = padrao_data.match(celulas[0])
           if match_data:
             data = match_data.group(1)
@@ -156,29 +156,39 @@ def extrair_tabela_banco_brasil(file_bytes):
             documento = ""
             valor = ""
 
-            # Analisa as colunas extraídas pela tabela
-            # Tipicamente no BB: [Data, Histórico, Documento, Valor, Saldo] ou variações
-            elementos_ uteis = [c for c in celulas[1:] if c != data]
-            
-            valores_c_d = [e for e in elementos_uteis if re.search(r"[CD]$", e, re.IGNORECASE)]
-            docs = [e for e in elementos_uteis if re.match(r"^(\d{2}\.\d{3}\.\d{3}|\d{2,15}\.?\d*|\d+)$", e) and not re.search(r"[CD]$", e, re.IGNORECASE)]
+            elementos_uteis = [c for c in celulas[1:] if c != data]
+
+            valores_c_d = [
+                e
+                for e in elementos_uteis
+                if re.search(r"[CD]$", e, re.IGNORECASE)
+            ]
+            docs = [
+                e
+                for e in elementos_uteis
+                if re.match(
+                    r"^(\d{2}\.\d{3}\.\d{3}|\d{2,15}\.?\d*|\d+)$", e
+                )
+                and not re.search(r"[CD]$", e, re.IGNORECASE)
+            ]
 
             if valores_c_d:
-              # O valor da transação é o primeiro montante encontrado (ignorando o saldo final se houver)
               valor = re.sub(r"[€R\$]", "", valores_c_d[0]).strip()
 
             if docs:
               documento = docs[0]
 
-            # O histórico é o texto restante que não é data, documento ou valor
             hist_parts = []
             for e in elementos_uteis:
               if e != documento and e not in valores_c_d:
                 hist_parts.append(e)
-            
+
             historico = " ".join(hist_parts).strip()
 
-            if "saldo anterior" in historico.lower() or historico.lower() == "saldo":
+            if (
+                "saldo anterior" in historico.lower()
+                or historico.lower() == "saldo"
+            ):
               continue
 
             if historico or valor:
@@ -189,11 +199,14 @@ def extrair_tabela_banco_brasil(file_bytes):
                   "Valor (R$)": valor,
               })
           else:
-            # Linha de continuação (ex: favorecido)
             if lancamentos and celulas:
               lancamentos[-1]["Histórico"] += " " + " ".join(celulas)
 
-  return pd.DataFrame(lancamentos) if lancamentos else pd.DataFrame(columns=["Data", "Histórico", "Documento", "Valor (R$)"])
+  return (
+      pd.DataFrame(lancamentos)
+      if lancamentos
+      else pd.DataFrame(columns=["Data", "Histórico", "Documento", "Valor (R$)"])
+  )
 
 
 def parser_itau(linhas_texto):
@@ -254,12 +267,20 @@ def parser_itau(linhas_texto):
               "Valor (R$)": "",
           })
 
-  return pd.DataFrame(lancamentos) if lancamentos else pd.DataFrame(columns=["Data", "Histórico", "Documento", "Valor (R$)"])
+  return (
+      pd.DataFrame(lancamentos)
+      if lancamentos
+      else pd.DataFrame(columns=["Data", "Histórico", "Documento", "Valor (R$)"])
+  )
 
 
 def parser_generico(linhas_texto):
   """Parser genérico para outros bancos."""
-  lancamentos = [{"Data": "", "Histórico": l, "Documento": "", "Valor (R$)": ""} for l in linhas_texto if l.strip()]
+  lancamentos = [
+      {"Data": "", "Histórico": l, "Documento": "", "Valor (R$)": ""}
+      for l in linhas_texto
+      if l.strip()
+  ]
   return pd.DataFrame(lancamentos)
 
 
@@ -359,7 +380,9 @@ with col2:
             if banco_selecionado == "Itaú":
               paginas_dict[f"Pagina_{num_pag + 1}"] = parser_itau(linhas_pag)
             else:
-              paginas_dict[f"Pagina_{num_pag + 1}"] = parser_generico(linhas_pag)
+              paginas_dict[f"Pagina_{num_pag + 1}"] = parser_generico(
+                  linhas_pag
+              )
 
           if banco_selecionado == "Banco do Brasil":
             df_completo = extrair_tabela_banco_brasil(file_bytes)
@@ -373,20 +396,31 @@ with col2:
 
           if banco_selecionado == "Banco do Brasil":
             df_completo = extrair_tabela_banco_brasil(file_bytes)
-            # Cria dict por páginas para exportação em abas
             with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
               for num_pag in range(len(pdf.pages)):
-                paginas_dict[f"Pagina_{num_pag + 1}"] = df_completo # Simplificado para demonstração
+                paginas_dict[f"Pagina_{num_pag + 1}"] = df_completo
           else:
             with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
               linhas_totais = []
               for num_pag, page in enumerate(pdf.pages):
                 texto_pagina = page.extract_text(layout=False)
-                linhas_pag = [l.strip() for l in texto_pagina.split("\n") if l.strip()] if texto_pagina else []
+                linhas_pag = (
+                    [l.strip() for l in texto_pagina.split("\n") if l.strip()]
+                    if texto_pagina
+                    else []
+                )
                 linhas_totais.extend(linhas_pag)
-                paginas_dict[f"Pagina_{num_pag + 1}"] = parser_itau(linhas_pag) if banco_selecionado == "Itaú" else parser_generico(linhas_pag)
-            
-            df_completo = parser_itau(linhas_totais) if banco_selecionado == "Itaú" else parser_generico(linhas_totais)
+                paginas_dict[f"Pagina_{num_pag + 1}"] = (
+                    parser_itau(linhas_pag)
+                    if banco_selecionado == "Itaú"
+                    else parser_generico(linhas_pag)
+                )
+
+            df_completo = (
+                parser_itau(linhas_totais)
+                if banco_selecionado == "Itaú"
+                else parser_generico(linhas_totais)
+            )
 
         progress_bar.progress(80)
         status_text.text("A estruturar a planilha final...")
@@ -425,5 +459,14 @@ with col2:
                 label="📥 Baixar Planilha Excel (.xlsx)",
                 data=excel_data,
                 file_name=f"extrato_{banco_selecionado.lower().replace(' ', '_')}.xlsx",
-                mime=(
-                    "application/vnd
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        else:
+          progress_bar.empty()
+          status_text.empty()
+          st.warning("⚠️ Nenhum conteúdo extraível encontrado no documento.")
+
+      except Exception as e:
+        progress_bar.empty()
+        status_text.empty()
+        st.error(f"❌ Ocorreu um erro no processamento: {e}")
