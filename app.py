@@ -110,12 +110,13 @@ st.markdown(
 
 
 def parser_banco_brasil(linhas_texto):
-  """Parser cirúrgico para extratos do Banco do Brasil com separação exata e leitura correta do Saldo."""
+  """Parser cirúrgico para extratos do Banco do Brasil com alinhamento correto de Valor e Saldo."""
   lancamentos = []
   padrao_data = re.compile(r"^(\d{2}/\d{2}/\d{4})")
   
-  # Regex para capturar valores monetários com C ou D (ex: 6.042,58 C, 18.000,00 D, 0,00 C)
-  padrao_valor = re.compile(r"([\d\.,]+\s*[CD])", re.IGNORECASE)
+  # Regex para capturar valores monetários com C ou D no final (ex: 6.042,58 C, 0,00 C)
+  # Aceita opcionalmente o símbolo de moeda (€ ou R$) se houver
+  padrao_valor = re.compile(r"([€R\$\s]*[\d\.,]+\s*[CD])", re.IGNORECASE)
 
   ultima_data = ""
 
@@ -156,20 +157,24 @@ def parser_banco_brasil(linhas_texto):
       valor = ""
       saldo = ""
 
-      # Atribuição inteligente de Valor e Saldo
+      # Atribuição precisa da direita para a esquerda
       if len(valores) >= 2:
-        valor = valores[0]
-        saldo = valores[1]
+        valor = valores[-2].strip()
+        saldo = valores[-1].strip()
+        # Remove os valores extraídos do resto para limpar o histórico
         for v in valores:
           resto = resto.replace(v, "").strip()
       elif len(valores) == 1:
-        val_encontrado = valores[0]
+        val_encontrado = valores[0].strip()
         resto = resto.replace(val_encontrado, "").strip()
-        # Se for linha de saldo anterior ou saldo final, vai para a coluna Saldo
         if "saldo" in resto.lower() or "anterior" in resto.lower() or "salto" in resto.lower():
           saldo = val_encontrado
         else:
           valor = val_encontrado
+
+      # Limpa símbolos de moeda extras dos valores
+      valor = re.sub(r"[€R\$]", "", valor).strip()
+      saldo = re.sub(r"[€R\$]", "", saldo).strip()
 
       # Identifica o número do documento/lote (números isolados típicos do BB)
       partes_resto = resto.split()
@@ -428,7 +433,7 @@ with col2:
         if banco_selecionado == "Banco do Brasil":
           df_completo = parser_banco_brasil(todas_linhas_brutas)
         elif banco_selecionado == "Itaú":
-          df_completo = parser_itau(todas_linhas_brutas)
+          df_completo = parser_itau(linhas_pag)
         else:
           df_completo = parser_generico(todas_linhas_brutas)
 
