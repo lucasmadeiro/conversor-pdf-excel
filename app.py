@@ -2,7 +2,7 @@ import io
 import re
 from pdf2image import convert_from_bytes
 import pandas as pd
-import pdfplumber
+import pypdf
 import pytesseract
 import streamlit as st
 
@@ -110,97 +110,80 @@ st.markdown(
 
 
 def extrair_tabela_banco_brasil(file_bytes):
-  """Parser dedicado do Banco do Brasil (Mantém a coluna Documento)."""
+  """Parser dedicado do Banco do Brasil."""
   lancamentos = []
   padrao_data = re.compile(r"^(\d{2}/\d{2}/\d{4})")
 
-  with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-    for page in pdf.pages:
-      tabelas = page.extract_tables()
-      for tabela in tabelas:
-        for linha in tabela:
-          celulas = [
-              str(c).strip()
-              for c in linha
-              if c is not None and str(c).strip() != ""
+  reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+  for page in reader.pages:
+    texto = page.extract_text()
+    if not texto:
+      continue
+    for linha in texto.split("\n"):
+      linha = linha.strip()
+      if not linha:
+        continue
+      if any(
+          termo in linha.lower()
+          for termo in [
+              "extrato conta corrente",
+              "cliente conta atual",
+              "agência",
+              "periodo do extrato",
+              "lançamentos",
+              "dt. movimento",
+              "dt. balancete",
+              "transação efetuada",
+              "serviço de atendimento",
+              "ouvidoria",
+              "para deficientes",
+              "g3321414432907891",
+              "governo",
           ]
-          if not celulas:
-            continue
+      ):
+        continue
 
-          texto_linha = " ".join(celulas)
+      match_data = padrao_data.match(linha)
+      if match_data:
+        data = match_data.group(1)
+        resto = linha.replace(data, "", 1).strip()
+        valores_c_d = re.findall(r"([\d\.,]+\s*[CD])", resto, re.IGNORECASE)
+        valor = ""
+        if valores_c_d:
+          valor = re.sub(r"[€R\$]", "", valores_c_d[0]).strip()
+          for v in valores_c_d:
+            resto = resto.replace(v, "").strip()
 
-          if any(
-              termo in texto_linha.lower()
-              for termo in [
-                  "extrato conta corrente",
-                  "cliente conta atual",
-                  "agência",
-                  "periodo do extrato",
-                  "lançamentos",
-                  "dt. movimento",
-                  "dt. balancete",
-                  "transação efetuada",
-                  "serviço de atendimento",
-                  "ouvidoria",
-                  "para deficientes",
-                  "g3321414432907891",
-                  "governo",
-              ]
+        partes = resto.split()
+        documento = ""
+        hist_parts = []
+        for parte in partes:
+          if (
+              re.match(r"^(\d{2}\.\d{3}\.\d{3}|\d{2,15}\.?\d*|\d+)$", parte)
+              and not documento
+              and len(hist_parts) > 0
           ):
-            continue
-
-          match_data = padrao_data.match(celulas[0])
-          if match_data:
-            data = match_data.group(1)
-            historico = ""
-            documento = ""
-            valor = ""
-
-            elementos_uteis = [c for c in celulas[1:] if c != data]
-
-            valores_c_d = [
-                e
-                for e in elementos_uteis
-                if re.search(r"[CD]$", e, re.IGNORECASE)
-            ]
-            docs = [
-                e
-                for e in elementos_uteis
-                if re.match(
-                    r"^(\d{2}\.\d{3}\.\d{3}|\d{2,15}\.?\d*|\d+)$", e
-                )
-                and not re.search(r"[CD]$", e, re.IGNORECASE)
-            ]
-
-            if valores_c_d:
-              valor = re.sub(r"[€R\$]", "", valores_c_d[0]).strip()
-
-            if docs:
-              documento = docs[0]
-
-            hist_parts = []
-            for e in elementos_uteis:
-              if e != documento and e not in valores_c_d:
-                hist_parts.append(e)
-
-            historico = " ".join(hist_parts).strip()
-
-            if (
-                "saldo anterior" in historico.lower()
-                or historico.lower() == "saldo"
-            ):
-              continue
-
-            if historico or valor:
-              lancamentos.append({
-                  "Data": data,
-                  "Histórico": historico,
-                  "Documento": documento,
-                  "Valor (R$)": valor,
-              })
+            documento = parte
           else:
-            if lancamentos and celulas:
-              lancamentos[-1]["Histórico"] += " " + " ".join(celulas)
+            hist_parts.append(parte)
+
+        historico = " ".join(hist_parts).strip()
+        if (
+            "saldo anterior" in historico.lower()
+            or historico.lower() == "saldo"
+        ):
+          continue
+
+        if historico or valor:
+          lancamentos.append({
+              "Data": data,
+              "Histórico": historico,
+              "Documento": documento,
+              "Valor (R$)": valor,
+          })
+      else:
+        if lancamentos:
+          lancamentos[-1]["Histórico"] += " " + linha
 
   return (
       pd.DataFrame(lancamentos)
@@ -210,70 +193,79 @@ def extrair_tabela_banco_brasil(file_bytes):
 
 
 def extrair_itau_consolidado(file_bytes):
-  """Parser dedicado para o Extrato Consolidado (Empresas) do Itaú."""
+  """Parser dedicado e robusto para o Extrato Consolidado (Empresas) do Itaú."""
   lancamentos = []
   padrao_data = re.compile(r"^(\d{2}/\d{2})")
 
-  with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-    for page in pdf.pages:
-      tabelas = page.extract_tables()
-      for tabela in tabelas:
-        for linha in tabela:
-          celulas = [
-              str(c).strip()
-              for c in linha
-              if c is not None and str(c).strip() != ""
+  reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+  ultima_data = ""
+
+  for page in reader.pages:
+    texto = page.extract_text()
+    if not texto:
+      continue
+    for linha in texto.split("\n"):
+      linha = linha.strip()
+      if not linha:
+        continue
+
+      if any(
+          termo in linha.lower()
+          for termo in [
+              "extrato mensal",
+              "ag 9249",
+              "dez 2023",
+              "278500",
+              "conta corrente",
+              "aplicações automáticas",
+              "resumo - mês",
+              "notas explicativas",
+              "pacote de serviços",
+              "movimentação - aplicações",
+              "totalizadores",
+              "sac 0800",
+              "ouvidoria",
           ]
-          if not celulas:
-            continue
+      ):
+        continue
 
-          texto_linha = " ".join(celulas)
-          texto_lower = texto_linha.lower()
+      match_data = padrao_data.match(linha)
+      if match_data:
+        ultima_data = match_data.group(1)
+        resto = linha.replace(ultima_data, "", 1).strip()
+      else:
+        resto = linha
 
-          if any(
-              parada in texto_lower
-              for parada in [
-                  "extrato mensal",
-                  "principais siglas",
-                  "notas explicativas",
-                  "sac 0800",
-                  "ouvidoria",
-                  "central de atendimento",
-                  "saldo anterior",
-                  "totalizador",
-                  "movimentação - aplicações",
-              ]
-          ):
-            continue
+      partes = resto.split()
+      valor = ""
+      hist_partes = []
 
-          match_data = padrao_data.match(celulas[0])
-          if match_data:
-            data = match_data.group(1)
-            elementos_uteis = [c for c in celulas[1:] if c != data]
+      for parte in partes:
+        if re.search(r"^[\d\.]+,\d{2}-?$", parte):
+          valor = parte
+        else:
+          hist_partes.append(parte)
 
-            valor = ""
-            valores = [
-                e
-                for e in elementos_uteis
-                if re.search(r"[\d\.,]+", e)
-                and ("-" in e or re.search(r"\d+,\d{2}", e))
+      historico = " ".join(hist_partes).strip()
+
+      if historico or valor:
+        if any(
+            h in historico.lower()
+            for h in [
+                "data",
+                "descrição",
+                "entradas",
+                "saídas",
+                "saldo",
+                "total",
             ]
-
-            if valores:
-              valor = valores[-1]
-              elementos_uteis = [e for e in elementos_uteis if e != valor]
-
-            historico = " ".join(elementos_uteis).strip()
-
-            if historico or valor:
-              lancamentos.append({
-                  "Data": data,
-                  "Histórico": historico,
-                  "Valor (R$)": valor,
-              })
-          else:
-            if lancamentos and celulas:
-              lancamentos[-1]["Histórico"] += " " + " ".join(celulas)
+        ):
+          continue
+        lancamentos.append({
+            "Data": ultima_data if ultima_data else "",
+            "Histórico": historico,
+            "Valor (R$)": valor,
+        })
 
   return (
       pd.DataFrame(lancamentos)
@@ -283,46 +275,46 @@ def extrair_itau_consolidado(file_bytes):
 
 
 def extrair_itau_movimentacao(file_bytes):
-  """Parser dedicado para o Extrato de Movimentação (Conta Corrente) do Itaú sem a coluna Documento."""
+  """Parser dedicado para o Extrato de Movimentação (Conta Corrente) do Itaú."""
   lancamentos = []
   padrao_data = re.compile(r"^(\d{2}/\d{2}/\d{4})")
 
-  with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-    for page in pdf.pages:
-      texto = page.extract_text()
-      if not texto:
+  reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+  for page in reader.pages:
+    texto = page.extract_text()
+    if not texto:
+      continue
+    for linha in texto.split("\n"):
+      linha = linha.strip()
+      if not linha:
         continue
-      for linha in texto.split("\n"):
-        linha = linha.strip()
-        if not linha:
+
+      match_data = padrao_data.match(linha)
+      if match_data:
+        data = match_data.group(1)
+        resto = linha.replace(data, "", 1).strip()
+
+        if "SALDO DO DIA" in resto.upper():
           continue
 
-        match_data = padrao_data.match(linha)
-        if match_data:
-          data = match_data.group(1)
-          resto = linha.replace(data, "", 1).strip()
+        partes = resto.split()
+        valor = ""
+        hist_partes = []
 
-          if "SALDO DO DIA" in resto.upper():
-            continue
+        for parte in partes:
+          if re.search(r"^[-]?[\d\.]+,\d{2}$", parte):
+            valor = parte
+          else:
+            hist_partes.append(parte)
 
-          partes = resto.split()
-          valor = ""
-          hist_partes = []
+        historico = " ".join(hist_partes).strip()
 
-          for parte in partes:
-            if re.search(r"^[-]?[\d\.]+,\d{2}$", parte):
-              valor = parte
-            else:
-              hist_partes.append(parte)
-
-          historico = " ".join(hist_partes).strip()
-
-          if historico or valor:
-            lancamentos.append({
-                "Data": data,
-                "Histórico": historico,
-                "Valor (R$)": valor,
-            })
+        if historico or valor:
+          lancamentos.append({
+              "Data": data,
+              "Histórico": historico,
+              "Valor (R$)": valor,
+          })
 
   return (
       pd.DataFrame(lancamentos)
@@ -334,17 +326,17 @@ def extrair_itau_movimentacao(file_bytes):
 def parser_generico(file_bytes):
   """Parser genérico para outros bancos."""
   lancamentos = []
-  with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-    for page in pdf.pages:
-      texto = page.extract_text()
-      if texto:
-        for linha in texto.split("\n"):
-          if linha.strip():
-            lancamentos.append({
-                "Data": "",
-                "Histórico": linha.strip(),
-                "Valor (R$)": "",
-            })
+  reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+  for page in reader.pages:
+    texto = page.extract_text()
+    if texto:
+      for linha in texto.split("\n"):
+        if linha.strip():
+          lancamentos.append({
+              "Data": "",
+              "Histórico": linha.strip(),
+              "Valor (R$)": "",
+          })
   return pd.DataFrame(lancamentos)
 
 
