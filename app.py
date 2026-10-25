@@ -110,7 +110,7 @@ st.markdown(
 
 
 def extrair_tabela_banco_brasil(file_bytes):
-  """Parser dedicado do Banco do Brasil."""
+  """Parser dedicado do Banco do Brasil (Mantido 100% intacto)."""
   lancamentos = []
   padrao_data = re.compile(r"^(\d{2}/\d{2}/\d{4})")
 
@@ -198,78 +198,129 @@ def extrair_itau_consolidado(file_bytes):
   padrao_data = re.compile(r"^(\d{2}/\d{2})")
 
   reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+  gravando = False
   ultima_data = ""
 
   for page in reader.pages:
     texto = page.extract_text()
     if not texto:
       continue
-    for linha in texto.split("\n"):
+    linhas = texto.split("\n")
+    for linha in linhas:
       linha = linha.strip()
       if not linha:
         continue
 
-      if any(
-          termo in linha.lower()
-          for termo in [
-              "extrato mensal",
-              "ag 9249",
-              "dez 2023",
-              "278500",
-              "conta corrente",
-              "aplicações automáticas",
-              "resumo - mês",
-              "notas explicativas",
-              "pacote de serviços",
-              "movimentação - aplicações",
-              "totalizadores",
-              "sac 0800",
-              "ouvidoria",
-          ]
-      ):
+      # Inicia a gravação a partir do saldo anterior
+      if "saldo anterior" in linha.lower():
+        gravando = True
+        parts = linha.split()
+        val = (
+            parts[-1]
+            if len(parts) > 1 and re.search(r"[\d\.]+,\d{2}", parts[-1])
+            else ""
+        )
+        lancamentos.append({
+            "Data": "30/11",
+            "Histórico": "Saldo anterior",
+            "Valor (R$)": val,
+        })
         continue
 
-      match_data = padrao_data.match(linha)
-      if match_data:
-        ultima_data = match_data.group(1)
-        resto = linha.replace(ultima_data, "", 1).strip()
-      else:
-        resto = linha
+      # Para a gravação ao atingir os resumos e secções finais
+      if any(
+          term in linha.lower()
+          for term in [
+              "conta corrente | aplicações automáticas",
+              "resumo - mês",
+              "pacote de serviços",
+              "notas explicativas",
+              "movimentação - aplicações",
+          ]
+      ):
+        gravando = False
 
-      partes = resto.split()
-      valor = ""
-      hist_partes = []
-
-      for parte in partes:
-        if re.search(r"^[\d\.]+,\d{2}-?$", parte):
-          valor = parte
-        else:
-          hist_partes.append(parte)
-
-      historico = " ".join(hist_partes).strip()
-
-      if historico or valor:
+      if gravando:
+        # Filtra ruídos, cabeçalhos de páginas e notas explicativas de legendas
         if any(
-            h in historico.lower()
-            for h in [
-                "data",
-                "descrição",
-                "entradas",
-                "saídas",
-                "saldo",
-                "total",
+            noise in linha.lower()
+            for noise in [
+                "extrato mensal",
+                "ag 9249",
+                "dez 2023",
+                "278500",
+                "001|",
+                "002|",
+                "003|",
+                "004|",
+                "005|",
+                "006|",
+                "007|",
+                "008|",
+                "a =",
+                "b =",
+                "c =",
+                "d =",
+                "g =",
+                "p =",
+                "bolsa de valores",
+                "crédito a compensar",
+                "débito a compensar",
+                "este material está disponível",
+                "para demais siglas",
+                "explicativas",
             ]
         ):
           continue
-        lancamentos.append({
-            "Data": ultima_data if ultima_data else "",
-            "Histórico": historico,
-            "Valor (R$)": valor,
-        })
 
+        match_data = padrao_data.match(linha)
+        if match_data:
+          ultima_data = match_data.group(1)
+          resto = linha.replace(ultima_data, "", 1).strip()
+        else:
+          resto = linha
+
+        # Se a linha for apenas um valor monetário isolado, atribui ao lançamento anterior
+        if re.search(r"^[-]?[\d\.]+,\d{2}-?$", resto):
+          if lancamentos:
+            lancamentos[-1]["Valor (R$)"] = resto
+        else:
+          partes = resto.split()
+          valor = ""
+          hist_partes = []
+          for parte in partes:
+            if re.search(r"^[-]?[\d\.]+,\d{2}-?$", parte):
+              valor = parte
+            else:
+              hist_partes.append(parte)
+
+          historico = " ".join(hist_partes).strip()
+          if historico or valor:
+            if any(
+                h in historico.lower()
+                for h in [
+                    "data",
+                    "descrição",
+                    "entradas",
+                    "saídas",
+                    "saldo",
+                    "total",
+                ]
+            ):
+              continue
+            lancamentos.append({
+                "Data": ultima_data if ultima_data else "",
+                "Histórico": historico,
+                "Valor (R$)": valor,
+            })
+
+  df = pd.DataFrame(lancamentos)
+  # Remove linhas em branco onde o valor ficou vazio
+  if not df.empty:
+    df = df[df["Valor (R$)"].astype(str).str.strip() != ""]
   return (
-      pd.DataFrame(lancamentos)
-      if lancamentos
+      df
+      if not df.empty
       else pd.DataFrame(columns=["Data", "Histórico", "Valor (R$)"])
   )
 
