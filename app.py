@@ -193,7 +193,7 @@ def extrair_tabela_banco_brasil(file_bytes):
 
 
 def extrair_itau_consolidado(file_bytes):
-  """Parser dedicado e robusto para o Extrato Consolidado (Empresas) do Itaú."""
+  """Parser dedicado e corrigido para o Extrato Consolidado (Empresas) do Itaú."""
   lancamentos = []
   padrao_data = re.compile(r"^(\d{2}/\d{2})")
 
@@ -211,7 +211,6 @@ def extrair_itau_consolidado(file_bytes):
       if not linha:
         continue
 
-      # Inicia a gravação a partir do saldo anterior
       if "saldo anterior" in linha.lower():
         gravando = True
         parts = linha.split()
@@ -227,7 +226,6 @@ def extrair_itau_consolidado(file_bytes):
         })
         continue
 
-      # Para a gravação ao atingir os resumos e secções finais
       if any(
           term in linha.lower()
           for term in [
@@ -241,7 +239,6 @@ def extrair_itau_consolidado(file_bytes):
         gravando = False
 
       if gravando:
-        # Filtra ruídos, cabeçalhos de páginas e notas explicativas de legendas
         if any(
             noise in linha.lower()
             for noise in [
@@ -280,7 +277,43 @@ def extrair_itau_consolidado(file_bytes):
         else:
           resto = linha
 
-        # Se a linha for apenas um valor monetário isolado, atribui ao lançamento anterior
+        # Ignora linhas puras de saldo de aplicação ou rendimento isolado que venham poluídas
+        if any(
+            ign in resto.lower()
+            for ign in [
+                "saldo aplic aut mais",
+                "rend pago aplic aut mais",
+                "res aplic aut mais",
+            ]
+        ):
+          # Se a linha de resgate/aplicação trouxer o valor correto antes do saldo, vamos capturar com precisão
+          partes = resto.split()
+          valor = ""
+          hist_partes = []
+          for parte in partes:
+            # Identifica o valor real da operação (geralmente o penúltimo antes do saldo final)
+            if re.search(r"^[-]?[\d\.]+,\d{2}-?$", parte):
+              valor = parte
+            else:
+              hist_partes.append(parte)
+
+          historico = " ".join(hist_partes).strip()
+          # Se o valor capturado for o saldo final alto, descartamos e mantemos apenas se for um valor válido de transação
+          if (
+              valor
+              and not "saldo aplic" in historico.lower()
+              and float(
+                  valor.replace(".", "").replace(",", ".").replace("-", "")
+              )
+              < 500000
+          ):
+            lancamentos.append({
+                "Data": ultima_data if ultima_data else "",
+                "Histórico": historico,
+                "Valor (R$)": valor,
+            })
+          continue
+
         if re.search(r"^[-]?[\d\.]+,\d{2}-?$", resto):
           if lancamentos:
             lancamentos[-1]["Valor (R$)"] = resto
@@ -315,7 +348,6 @@ def extrair_itau_consolidado(file_bytes):
             })
 
   df = pd.DataFrame(lancamentos)
-  # Remove linhas em branco onde o valor ficou vazio
   if not df.empty:
     df = df[df["Valor (R$)"].astype(str).str.strip() != ""]
   return (
