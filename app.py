@@ -110,12 +110,12 @@ st.markdown(
 
 
 def parser_banco_brasil(linhas_texto):
-  """Parser definitivo para extratos do Banco do Brasil com alinhamento rigoroso por tokens monetários."""
+  """Parser otimizado para o Banco do Brasil sem coluna de saldo e com separação exata de valores."""
   lancamentos = []
   padrao_data = re.compile(r"^(\d{2}/\d{2}/\d{4})")
   
-  # Regex para capturar valores monetários seguidos de C ou D (ex: 6.042,58 C, 0,00 C)
-  padrao_valor = re.compile(r"([\d\.,]+\s*[CD])", re.IGNORECASE)
+  # Regex para capturar valores monetários seguidos de C ou D
+  padrao_valor = re.compile(r"([€R\$\s]*[\d\.,]+\s*[CD])", re.IGNORECASE)
 
   ultima_data = ""
 
@@ -124,7 +124,7 @@ def parser_banco_brasil(linhas_texto):
     if not linha:
       continue
 
-    # Ignora cabeçalhos, rodapés e metadados institucionais do BB
+    # Ignora cabeçalhos e rodapés institucionais
     if any(
         termo in linha.lower()
         for termo in [
@@ -150,54 +150,39 @@ def parser_banco_brasil(linhas_texto):
       ultima_data = match_data.group(1)
       resto = linha.replace(ultima_data, "", 1).strip()
 
-      # Extrai todos os valores monetários encontrados na linha
       valores_encontrados = padrao_valor.findall(resto)
-      
-      valor = ""
-      saldo = ""
+      valor_transacao = ""
 
-      if len(valores_encontrados) >= 2:
-        valor = valores_encontrados[-2].strip()
-        saldo = valores_encontrados[-1].strip()
+      if valores_encontrados:
+        # Se houver mais de um valor (ex: transação + saldo final), o valor da transação é o primeiro
+        valor_transacao = valores_encontrados[0].strip()
+        # Remove todos os valores monetários encontrados para limpar o histórico
         for v in valores_encontrados:
           resto = resto.replace(v, "").strip()
-      elif len(valores_encontrados) == 1:
-        val = valores_encontrados[0].strip()
-        resto = resto.replace(val, "").strip()
-        # Se for saldo anterior ou saldo final, vai para a coluna Saldo
-        if "saldo" in resto.lower() or "anterior" in resto.lower() or val.startswith("0,00"):
-          saldo = val
-        else:
-          valor = val
 
-      # Extrai o documento/lote do meio do texto (números isolados típicos do BB)
+      valor_transacao = re.sub(r"[€R\$]", "", valor_transacao).strip()
+
+      # Extração do documento/lote
       partes = resto.split()
       documento = ""
-      historico_partes = []
+      hist_partes = []
 
       for parte in partes:
-        if re.match(r"^(\d{2}\.\d{3}\.\d{3}|\d{2,15}\.?\d*|\d+)$", parte) and not documento and len(historico_partes) > 0:
+        if re.match(r"^(\d{2}\.\d{3}\.\d{3}|\d{2,15}\.?\d*|\d+)$", parte) and not documento and len(hist_partes) > 0:
           documento = parte
         else:
-          historico_partes.append(parte)
+          hist_partes.append(parte)
 
-      historico = " ".join(historico_partes).strip()
-
-      # Correção para linhas de saldo que ficaram sem valor na transação mas com montante capturado
-      if "saldo anterior" in historico.lower() or historico.lower() == "s a l d o" or historico.lower() == "saldo":
-        if not saldo and valor:
-          saldo = valor
-          valor = ""
+      historico = " ".join(hist_partes).strip()
 
       lancamentos.append({
           "Data": ultima_data,
           "Histórico": historico if historico else "",
           "Documento": documento if documento else "",
-          "Valor (R$)": valor if valor else "",
-          "Saldo (R$)": saldo if saldo else "",
+          "Valor (R$)": valor_transacao if valor_transacao else "",
       })
     else:
-      # Linha de continuação de histórico (ex: nome do favorecido em transferências)
+      # Linha de continuação de histórico
       if lancamentos and ultima_data:
         lancamentos[-1]["Histórico"] += " " + linha
       else:
@@ -206,7 +191,6 @@ def parser_banco_brasil(linhas_texto):
             "Histórico": linha,
             "Documento": "",
             "Valor (R$)": "",
-            "Saldo (R$)": "",
         })
 
   return (
@@ -262,7 +246,6 @@ def parser_itau(linhas_texto):
             "Histórico": conteudo,
             "Documento": "",
             "Valor (R$)": "",
-            "Saldo (R$)": "",
         })
       else:
         conteudo_limpo = re.sub(r"-\d+$", "", linha).strip()
@@ -274,7 +257,6 @@ def parser_itau(linhas_texto):
               "Histórico": conteudo_limpo,
               "Documento": "",
               "Valor (R$)": "",
-              "Saldo (R$)": "",
           })
 
   return (
@@ -287,7 +269,7 @@ def parser_itau(linhas_texto):
 def parser_generico(linhas_texto):
   """Parser genérico para outros bancos."""
   lancamentos = [
-      {"Data": "", "Histórico": l, "Documento": "", "Valor (R$)": "", "Saldo (R$)": ""} 
+      {"Data": "", "Histórico": l, "Documento": "", "Valor (R$)": ""} 
       for l in linhas_texto if l.strip()
   ]
   return pd.DataFrame(lancamentos)
