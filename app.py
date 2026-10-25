@@ -110,11 +110,11 @@ st.markdown(
 
 
 def parser_banco_brasil(linhas_texto):
-  """Parser cirúrgico para extratos do Banco do Brasil com separação exata de colunas."""
+  """Parser cirúrgico para extratos do Banco do Brasil com alinhamento rigoroso de colunas em branco."""
   lancamentos = []
   padrao_data = re.compile(r"^(\d{2}/\d{2}/\d{4})")
   
-  # Regex para capturar valores monetários com C ou D (ex: 6.042,58 C, 18.000,00 D, 0,00 C)
+  # Regex para capturar valores monetários com C ou D (ex: 6.042,58 C, 0,00 C)
   padrao_valor = re.compile(r"([\d\.,]+\s*[CD])", re.IGNORECASE)
 
   ultima_data = ""
@@ -150,42 +150,46 @@ def parser_banco_brasil(linhas_texto):
       ultima_data = match_data.group(1)
       resto = linha.replace(ultima_data, "", 1).strip()
 
-      # Extrai todos os valores monetários da linha
+      # Extrai todos os valores monetários encontrados na linha
       valores = padrao_valor.findall(resto)
       
       valor = ""
       saldo = ""
-      
+
+      # Lógica precisa para atribuir Valor e Saldo baseando-se na quantidade de montantes na linha
       if len(valores) >= 2:
-        valor = valores[-2]
-        saldo = valores[-1]
+        valor = valores[0]
+        saldo = valores[1]
         for v in valores:
           resto = resto.replace(v, "").strip()
       elif len(valores) == 1:
-        # Se houver apenas um valor, verifica se é saldo anterior ou lançamento único
-        valor = valores[0]
-        resto = resto.replace(valor, "").strip()
+        # Se for apenas um valor (comum em saldos anteriores ou linhas onde só há saldo ou só valor)
+        val_encontrado = valores[0]
+        resto = resto.replace(val_encontrado, "").strip()
+        if "saldo" in resto.lower() or "anterior" in resto.lower() or "salto" in resto.lower():
+          saldo = val_encontrado
+        else:
+          valor = val_encontrado
 
-      # Tenta isolar o número do documento/lote (geralmente números isolados como 70, 52.007.419, etc.)
+      # Identifica o número do documento/lote (números isolados típicos do BB)
       partes_resto = resto.split()
       documento = ""
       historico_partes = []
 
       for parte in partes_resto:
-        # Se a parte for um número de documento típico (ex: código longo ou número pequeno de lote)
         if re.match(r"^(\d{2}\.\d{3}\.\d{3}|\d{2,15}\.?\d*|\d+)$", parte) and not documento and len(historico_partes) > 0:
           documento = parte
         else:
           historico_partes.append(parte)
 
-      historico = " ".join(historico_partes)
+      historico = " ".join(historico_partes).strip()
 
       lancamentos.append({
           "Data": ultima_data,
-          "Histórico": historico,
-          "Documento": documento,
-          "Valor (R$)": valor,
-          "Saldo (R$)": saldo,
+          "Histórico": historico if historico else "",
+          "Documento": documento if documento else "",
+          "Valor (R$)": valor if valor else "",
+          "Saldo (R$)": saldo if saldo else "",
       })
     else:
       # Linha de continuação de histórico (ex: nome do favorecido)
