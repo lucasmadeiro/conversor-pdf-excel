@@ -110,12 +110,12 @@ st.markdown(
 
 
 def parser_banco_brasil(linhas_texto):
-  """Parser especializado para extratos do Banco do Brasil com colunas perfeitamente estruturadas."""
+  """Parser cirúrgico para extratos do Banco do Brasil com separação exata de colunas."""
   lancamentos = []
   padrao_data = re.compile(r"^(\d{2}/\d{2}/\d{4})")
   
-  # Regex para identificar valores monetários no final da linha (ex: 6.042,58 C ou 18.000,00 D)
-  padrao_valor_saldo = re.compile(r"([\d\.,]+\s*[CD])", re.IGNORECASE)
+  # Regex para capturar valores monetários com C ou D (ex: 6.042,58 C, 18.000,00 D, 0,00 C)
+  padrao_valor = re.compile(r"([\d\.,]+\s*[CD])", re.IGNORECASE)
 
   ultima_data = ""
 
@@ -124,10 +124,11 @@ def parser_banco_brasil(linhas_texto):
     if not linha:
       continue
 
-    # Ignora cabeçalhos e rodapés institucionais
+    # Ignora cabeçalhos e rodapés institucionais do BB
     if any(
         termo in linha
         for termo in [
+            "GOVERNO",
             "Extrato conta corrente",
             "Cliente Conta atual",
             "Agência",
@@ -149,37 +150,52 @@ def parser_banco_brasil(linhas_texto):
       ultima_data = match_data.group(1)
       resto = linha.replace(ultima_data, "", 1).strip()
 
-      # Tenta extrair valores monetários do final da linha
-      valores_encontrados = padrao_valor_saldo.findall(resto)
+      # Extrai todos os valores monetários da linha
+      valores = padrao_valor.findall(resto)
       
       valor = ""
       saldo = ""
-      historico = resto
+      
+      if len(valores) >= 2:
+        valor = valores[-2]
+        saldo = valores[-1]
+        for v in valores:
+          resto = resto.replace(v, "").strip()
+      elif len(valores) == 1:
+        # Se houver apenas um valor, verifica se é saldo anterior ou lançamento único
+        valor = valores[0]
+        resto = resto.replace(valor, "").strip()
 
-      if len(valores_encontrados) >= 2:
-        valor = valores_encontrados[-2]
-        saldo = valores_encontrados[-1]
-        # Remove os valores do histórico para mantê-lo limpo
-        for v in valores_encontrados:
-          historico = historico.replace(v, "").strip()
-      elif len(valores_encontrados) == 1:
-        valor = valores_encontrados[0]
-        historico = historico.replace(valor, "").strip()
+      # Tenta isolar o número do documento/lote (geralmente números isolados como 70, 52.007.419, etc.)
+      partes_resto = resto.split()
+      documento = ""
+      historico_partes = []
+
+      for parte in partes_resto:
+        # Se a parte for um número de documento típico (ex: código longo ou número pequeno de lote)
+        if re.match(r"^(\d{2}\.\d{3}\.\d{3}|\d{2,15}\.?\d*|\d+)$", parte) and not documento and len(historico_partes) > 0:
+          documento = parte
+        else:
+          historico_partes.append(parte)
+
+      historico = " ".join(historico_partes)
 
       lancamentos.append({
           "Data": ultima_data,
           "Histórico": historico,
+          "Documento": documento,
           "Valor (R$)": valor,
           "Saldo (R$)": saldo,
       })
     else:
-      # Linha de continuação de histórico (ex: nome da prefeitura ou favorecido)
+      # Linha de continuação de histórico (ex: nome do favorecido)
       if lancamentos and ultima_data:
         lancamentos[-1]["Histórico"] += " " + linha
       else:
         lancamentos.append({
             "Data": "",
             "Histórico": linha,
+            "Documento": "",
             "Valor (R$)": "",
             "Saldo (R$)": "",
         })
@@ -235,7 +251,9 @@ def parser_itau(linhas_texto):
         lancamentos.append({
             "Data": ultima_data,
             "Histórico": conteudo,
-            "Valor / Detalhes": "",
+            "Documento": "",
+            "Valor (R$)": "",
+            "Saldo (R$)": "",
         })
       else:
         conteudo_limpo = re.sub(r"-\d+$", "", linha).strip()
@@ -245,7 +263,9 @@ def parser_itau(linhas_texto):
           lancamentos.append({
               "Data": ultima_data,
               "Histórico": conteudo_limpo,
-              "Valor / Detalhes": "",
+              "Documento": "",
+              "Valor (R$)": "",
+              "Saldo (R$)": "",
           })
 
   return (
@@ -258,7 +278,8 @@ def parser_itau(linhas_texto):
 def parser_generico(linhas_texto):
   """Parser genérico para outros bancos."""
   lancamentos = [
-      {"Data": "", "Histórico": l} for l in linhas_texto if l.strip()
+      {"Data": "", "Histórico": l, "Documento": "", "Valor (R$)": "", "Saldo (R$)": ""} 
+      for l in linhas_texto if l.strip()
   ]
   return pd.DataFrame(lancamentos)
 
