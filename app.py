@@ -110,12 +110,12 @@ st.markdown(
 
 
 def parser_banco_brasil(linhas_texto):
-  """Parser cirúrgico para extratos do Banco do Brasil usando deteção precisa de tokens monetários."""
+  """Parser especialista para extratos do Banco do Brasil com alinhamento rigoroso por tokens."""
   lancamentos = []
   padrao_data = re.compile(r"^(\d{2}/\d{2}/\d{4})")
   
-  # Regex para detetar montantes com C ou D (ex: 6.042,58 C, 0,00 C, 18.000,00 D)
-  padrao_valor = re.compile(r"([€R\$\s]*[\d\.,]+\s*[CD])", re.IGNORECASE)
+  # Regex para capturar valores monetários seguidos de C ou D (ex: 6.042,58 C, 0,00 C)
+  padrao_valor = re.compile(r"([\d\.,]+\s*[CD])", re.IGNORECASE)
 
   ultima_data = ""
 
@@ -124,23 +124,23 @@ def parser_banco_brasil(linhas_texto):
     if not linha:
       continue
 
-    # Ignora cabeçalhos e rodapés institucionais do BB
+    # Ignora cabeçalhos, rodapés e metadados do BB
     if any(
-        termo in linha
+        termo in linha.lower()
         for termo in [
-            "GOVERNO",
-            "Extrato conta corrente",
-            "Cliente Conta atual",
-            "Agência",
-            "Periodo do extrato",
-            "Lançamentos",
-            "Dt. movimento",
-            "Dt. balancete",
-            "Transação efetuada",
-            "Serviço de Atendimento",
-            "Ouvidoria",
-            "Para deficientes",
-            "G3321414432907891",
+            "extrato conta corrente",
+            "cliente conta atual",
+            "agência",
+            "periodo do extrato",
+            "lançamentos",
+            "dt. movimento",
+            "dt. balancete",
+            "transação efetuada",
+            "serviço de atendimento",
+            "ouvidoria",
+            "para deficientes",
+            "g3321414432907891",
+            "governo",
         ]
     ):
       continue
@@ -150,42 +150,46 @@ def parser_banco_brasil(linhas_texto):
       ultima_data = match_data.group(1)
       resto = linha.replace(ultima_data, "", 1).strip()
 
-      # Encontra todos os valores monetários na linha
-      valores_brutos = padrao_valor.findall(resto)
-      valores = [re.sub(r"[€R\$]", "", v).strip() for v in valores_brutos]
-
+      # Extrai todos os valores monetários do final da linha
+      valores_encontrados = padrao_valor.findall(resto)
+      
       valor = ""
       saldo = ""
 
-      # Atribuição exata baseada na quantidade de valores detetados na linha
-      if len(valores) >= 2:
-        # Se tem dois valores, o penúltimo é a transação e o último é o saldo
-        valor = valores[-2]
-        saldo = valores[-1]
-        for v in valores_brutos:
+      if len(valores_encontrados) >= 2:
+        valor = valores_encontrados[-2].strip()
+        saldo = valores_encontrados[-1].strip()
+        for v in valores_encontrados:
           resto = resto.replace(v, "").strip()
-      elif len(valores) == 1:
-        val = valores[0]
-        resto = resto.replace(valores_brutos[0], "").strip()
-        # Se a linha menciona saldo ou se o valor for 0,00 C isolado, vai para saldo; caso contrário, valor
-        if "saldo" in resto.lower() or "anterior" in resto.lower() or "salto" in resto.lower() or val.startswith("0,00"):
+      elif len(valores_encontrados) == 1:
+        val = valores_encontrados[0].strip()
+        resto = resto.replace(val, "").strip()
+        # Se a linha menciona saldo ou se for saldo anterior/final
+        if "saldo" in resto.lower() or "anterior" in resto.lower():
           saldo = val
         else:
           valor = val
 
-      # Separa o documento (números de lote ou códigos de transação) do histórico
+      # O restante do texto contém o Histórico e o Documento
+      # No BB, o documento costuma ser um número isolado (ex: 52.007.419, 70)
       partes = resto.split()
       documento = ""
-      historico_tokens = []
+      historico_partes = []
 
       for parte in partes:
-        # Identifica códigos de documento típicos do BB (ex: 52.007.419, 70, 550.891...)
-        if re.match(r"^(\d{2}\.\d{3}\.\d{3}|\d{2,15}\.?\d*|\d+)$", parte) and not documento and len(historico_tokens) > 0:
+        # Identifica códigos de documentos típicos do BB
+        if re.match(r"^(\d{2}\.\d{3}\.\d{3}|\d{2,15}\.?\d*|\d+)$", parte) and not documento and len(historico_partes) > 0:
           documento = parte
         else:
-          historico_tokens.append(parte)
+          historico_partes.append(parte)
 
-      historico = " ".join(historico_tokens).strip()
+      historico = " ".join(historico_partes).strip()
+
+      # Ajuste especial para linha de Saldo Anterior / SALDO
+      if "saldo anterior" in historico.lower() or historico.lower() == "saldo":
+        if not saldo and valor:
+          saldo = valor
+          valor = ""
 
       lancamentos.append({
           "Data": ultima_data,
@@ -195,7 +199,7 @@ def parser_banco_brasil(linhas_texto):
           "Saldo (R$)": saldo if saldo else "",
       })
     else:
-      # Linha de continuação de histórico (ex: nome do favorecido)
+      # Linha de continuação de histórico (ex: nome do favorecido em transferências)
       if lancamentos and ultima_data:
         lancamentos[-1]["Histórico"] += " " + linha
       else:
