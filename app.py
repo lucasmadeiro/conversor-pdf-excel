@@ -110,7 +110,7 @@ st.markdown(
 
 
 def parser_banco_brasil(linhas_texto):
-  """Parser especialista para extratos do Banco do Brasil com alinhamento rigoroso por tokens."""
+  """Parser definitivo para extratos do Banco do Brasil com alinhamento rigoroso por tokens monetários."""
   lancamentos = []
   padrao_data = re.compile(r"^(\d{2}/\d{2}/\d{4})")
   
@@ -124,7 +124,7 @@ def parser_banco_brasil(linhas_texto):
     if not linha:
       continue
 
-    # Ignora cabeçalhos, rodapés e metadados do BB
+    # Ignora cabeçalhos, rodapés e metadados institucionais do BB
     if any(
         termo in linha.lower()
         for termo in [
@@ -150,7 +150,7 @@ def parser_banco_brasil(linhas_texto):
       ultima_data = match_data.group(1)
       resto = linha.replace(ultima_data, "", 1).strip()
 
-      # Extrai todos os valores monetários do final da linha
+      # Extrai todos os valores monetários encontrados na linha
       valores_encontrados = padrao_valor.findall(resto)
       
       valor = ""
@@ -164,20 +164,18 @@ def parser_banco_brasil(linhas_texto):
       elif len(valores_encontrados) == 1:
         val = valores_encontrados[0].strip()
         resto = resto.replace(val, "").strip()
-        # Se a linha menciona saldo ou se for saldo anterior/final
-        if "saldo" in resto.lower() or "anterior" in resto.lower():
+        # Se for saldo anterior ou saldo final, vai para a coluna Saldo
+        if "saldo" in resto.lower() or "anterior" in resto.lower() or val.startswith("0,00"):
           saldo = val
         else:
           valor = val
 
-      # O restante do texto contém o Histórico e o Documento
-      # No BB, o documento costuma ser um número isolado (ex: 52.007.419, 70)
+      # Extrai o documento/lote do meio do texto (números isolados típicos do BB)
       partes = resto.split()
       documento = ""
       historico_partes = []
 
       for parte in partes:
-        # Identifica códigos de documentos típicos do BB
         if re.match(r"^(\d{2}\.\d{3}\.\d{3}|\d{2,15}\.?\d*|\d+)$", parte) and not documento and len(historico_partes) > 0:
           documento = parte
         else:
@@ -185,8 +183,8 @@ def parser_banco_brasil(linhas_texto):
 
       historico = " ".join(historico_partes).strip()
 
-      # Ajuste especial para linha de Saldo Anterior / SALDO
-      if "saldo anterior" in historico.lower() or historico.lower() == "saldo":
+      # Correção para linhas de saldo que ficaram sem valor na transação mas com montante capturado
+      if "saldo anterior" in historico.lower() or historico.lower() == "s a l d o" or historico.lower() == "saldo":
         if not saldo and valor:
           saldo = valor
           valor = ""
