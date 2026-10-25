@@ -110,9 +110,13 @@ st.markdown(
 
 
 def parser_banco_brasil(linhas_texto):
-  """Parser especializado para extratos do Banco do Brasil."""
+  """Parser especializado para extratos do Banco do Brasil com colunas perfeitamente estruturadas."""
   lancamentos = []
   padrao_data = re.compile(r"^(\d{2}/\d{2}/\d{4})")
+  
+  # Regex para identificar valores monetários no final da linha (ex: 6.042,58 C ou 18.000,00 D)
+  padrao_valor_saldo = re.compile(r"([\d\.,]+\s*[CD])", re.IGNORECASE)
+
   ultima_data = ""
 
   for linha in linhas_texto:
@@ -120,6 +124,7 @@ def parser_banco_brasil(linhas_texto):
     if not linha:
       continue
 
+    # Ignora cabeçalhos e rodapés institucionais
     if any(
         termo in linha
         for termo in [
@@ -129,10 +134,12 @@ def parser_banco_brasil(linhas_texto):
             "Periodo do extrato",
             "Lançamentos",
             "Dt. movimento",
+            "Dt. balancete",
             "Transação efetuada",
             "Serviço de Atendimento",
             "Ouvidoria",
             "Para deficientes",
+            "G3321414432907891",
         ]
     ):
       continue
@@ -141,12 +148,41 @@ def parser_banco_brasil(linhas_texto):
     if match_data:
       ultima_data = match_data.group(1)
       resto = linha.replace(ultima_data, "", 1).strip()
-      lancamentos.append({"Data": ultima_data, "Histórico / Lançamento": resto})
+
+      # Tenta extrair valores monetários do final da linha
+      valores_encontrados = padrao_valor_saldo.findall(resto)
+      
+      valor = ""
+      saldo = ""
+      historico = resto
+
+      if len(valores_encontrados) >= 2:
+        valor = valores_encontrados[-2]
+        saldo = valores_encontrados[-1]
+        # Remove os valores do histórico para mantê-lo limpo
+        for v in valores_encontrados:
+          historico = historico.replace(v, "").strip()
+      elif len(valores_encontrados) == 1:
+        valor = valores_encontrados[0]
+        historico = historico.replace(valor, "").strip()
+
+      lancamentos.append({
+          "Data": ultima_data,
+          "Histórico": historico,
+          "Valor (R$)": valor,
+          "Saldo (R$)": saldo,
+      })
     else:
+      # Linha de continuação de histórico (ex: nome da prefeitura ou favorecido)
       if lancamentos and ultima_data:
-        lancamentos[-1]["Histórico / Lançamento"] += " " + linha
+        lancamentos[-1]["Histórico"] += " " + linha
       else:
-        lancamentos.append({"Data": "", "Histórico / Lançamento": linha})
+        lancamentos.append({
+            "Data": "",
+            "Histórico": linha,
+            "Valor (R$)": "",
+            "Saldo (R$)": "",
+        })
 
   return (
       pd.DataFrame(lancamentos)
@@ -196,19 +232,25 @@ def parser_itau(linhas_texto):
         ultima_data = match_data.group(1)
         conteudo = linha[match_data.end() :].strip()
         conteudo = re.sub(r"-\d+$", "", conteudo).strip()
-        transacoes.append({"Data": ultima_data, "Histórico / Lançamento": conteudo})
+        lancamentos.append({
+            "Data": ultima_data,
+            "Histórico": conteudo,
+            "Valor / Detalhes": "",
+        })
       else:
         conteudo_limpo = re.sub(r"-\d+$", "", linha).strip()
-        if transacoes:
-          transacoes.append(
-              {"Data": ultima_data, "Histórico / Lançamento": conteudo_limpo}
-          )
+        if lancamentos:
+          lancamentos[-1]["Histórico"] += " " + conteudo_limpo
         else:
-          transacoes.append({"Data": "", "Histórico / Lançamento": conteudo_limpo})
+          lancamentos.append({
+              "Data": ultima_data,
+              "Histórico": conteudo_limpo,
+              "Valor / Detalhes": "",
+          })
 
   return (
-      pd.DataFrame(transacoes)
-      if transacoes
+      pd.DataFrame(lancamentos)
+      if lancamentos
       else pd.DataFrame({"Conteúdo Bruto": linhas_texto})
   )
 
@@ -216,7 +258,7 @@ def parser_itau(linhas_texto):
 def parser_generico(linhas_texto):
   """Parser genérico para outros bancos."""
   lancamentos = [
-      {"Data": "", "Histórico / Lançamento": l} for l in linhas_texto if l.strip()
+      {"Data": "", "Histórico": l} for l in linhas_texto if l.strip()
   ]
   return pd.DataFrame(lancamentos)
 
