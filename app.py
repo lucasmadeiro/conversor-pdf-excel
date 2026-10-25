@@ -110,12 +110,11 @@ st.markdown(
 
 
 def parser_banco_brasil(linhas_texto):
-  """Parser cirúrgico para extratos do Banco do Brasil com alinhamento correto de Valor e Saldo."""
+  """Parser cirúrgico para extratos do Banco do Brasil usando deteção precisa de tokens monetários."""
   lancamentos = []
   padrao_data = re.compile(r"^(\d{2}/\d{2}/\d{4})")
   
-  # Regex para capturar valores monetários com C ou D no final (ex: 6.042,58 C, 0,00 C)
-  # Aceita opcionalmente o símbolo de moeda (€ ou R$) se houver
+  # Regex para detetar montantes com C ou D (ex: 6.042,58 C, 0,00 C, 18.000,00 D)
   padrao_valor = re.compile(r"([€R\$\s]*[\d\.,]+\s*[CD])", re.IGNORECASE)
 
   ultima_data = ""
@@ -151,43 +150,42 @@ def parser_banco_brasil(linhas_texto):
       ultima_data = match_data.group(1)
       resto = linha.replace(ultima_data, "", 1).strip()
 
-      # Extrai todos os valores monetários encontrados na linha
-      valores = padrao_valor.findall(resto)
-      
+      # Encontra todos os valores monetários na linha
+      valores_brutos = padrao_valor.findall(resto)
+      valores = [re.sub(r"[€R\$]", "", v).strip() for v in valores_brutos]
+
       valor = ""
       saldo = ""
 
-      # Atribuição precisa da direita para a esquerda
+      # Atribuição exata baseada na quantidade de valores detetados na linha
       if len(valores) >= 2:
-        valor = valores[-2].strip()
-        saldo = valores[-1].strip()
-        # Remove os valores extraídos do resto para limpar o histórico
-        for v in valores:
+        # Se tem dois valores, o penúltimo é a transação e o último é o saldo
+        valor = valores[-2]
+        saldo = valores[-1]
+        for v in valores_brutos:
           resto = resto.replace(v, "").strip()
       elif len(valores) == 1:
-        val_encontrado = valores[0].strip()
-        resto = resto.replace(val_encontrado, "").strip()
-        if "saldo" in resto.lower() or "anterior" in resto.lower() or "salto" in resto.lower():
-          saldo = val_encontrado
+        val = valores[0]
+        resto = resto.replace(valores_brutos[0], "").strip()
+        # Se a linha menciona saldo ou se o valor for 0,00 C isolado, vai para saldo; caso contrário, valor
+        if "saldo" in resto.lower() or "anterior" in resto.lower() or "salto" in resto.lower() or val.startswith("0,00"):
+          saldo = val
         else:
-          valor = val_encontrado
+          valor = val
 
-      # Limpa símbolos de moeda extras dos valores
-      valor = re.sub(r"[€R\$]", "", valor).strip()
-      saldo = re.sub(r"[€R\$]", "", saldo).strip()
-
-      # Identifica o número do documento/lote (números isolados típicos do BB)
-      partes_resto = resto.split()
+      # Separa o documento (números de lote ou códigos de transação) do histórico
+      partes = resto.split()
       documento = ""
-      historico_partes = []
+      historico_tokens = []
 
-      for parte in partes_resto:
-        if re.match(r"^(\d{2}\.\d{3}\.\d{3}|\d{2,15}\.?\d*|\d+)$", parte) and not documento and len(historico_partes) > 0:
+      for parte in partes:
+        # Identifica códigos de documento típicos do BB (ex: 52.007.419, 70, 550.891...)
+        if re.match(r"^(\d{2}\.\d{3}\.\d{3}|\d{2,15}\.?\d*|\d+)$", parte) and not documento and len(historico_tokens) > 0:
           documento = parte
         else:
-          historico_partes.append(parte)
+          historico_tokens.append(parte)
 
-      historico = " ".join(historico_partes).strip()
+      historico = " ".join(historico_tokens).strip()
 
       lancamentos.append({
           "Data": ultima_data,
@@ -433,7 +431,7 @@ with col2:
         if banco_selecionado == "Banco do Brasil":
           df_completo = parser_banco_brasil(todas_linhas_brutas)
         elif banco_selecionado == "Itaú":
-          df_completo = parser_itau(linhas_pag)
+          df_completo = parser_itau(todas_linhas_brutas)
         else:
           df_completo = parser_generico(todas_linhas_brutas)
 
