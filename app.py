@@ -110,11 +110,11 @@ st.markdown(
 
 
 def parser_banco_brasil(linhas_texto):
-  """Parser cirúrgico para extratos do Banco do Brasil com alinhamento rigoroso de colunas em branco."""
+  """Parser cirúrgico para extratos do Banco do Brasil com separação exata e leitura correta do Saldo."""
   lancamentos = []
   padrao_data = re.compile(r"^(\d{2}/\d{2}/\d{4})")
   
-  # Regex para capturar valores monetários com C ou D (ex: 6.042,58 C, 0,00 C)
+  # Regex para capturar valores monetários com C ou D (ex: 6.042,58 C, 18.000,00 D, 0,00 C)
   padrao_valor = re.compile(r"([\d\.,]+\s*[CD])", re.IGNORECASE)
 
   ultima_data = ""
@@ -156,16 +156,16 @@ def parser_banco_brasil(linhas_texto):
       valor = ""
       saldo = ""
 
-      # Lógica precisa para atribuir Valor e Saldo baseando-se na quantidade de montantes na linha
+      # Atribuição inteligente de Valor e Saldo
       if len(valores) >= 2:
         valor = valores[0]
         saldo = valores[1]
         for v in valores:
           resto = resto.replace(v, "").strip()
       elif len(valores) == 1:
-        # Se for apenas um valor (comum em saldos anteriores ou linhas onde só há saldo ou só valor)
         val_encontrado = valores[0]
         resto = resto.replace(val_encontrado, "").strip()
+        # Se for linha de saldo anterior ou saldo final, vai para a coluna Saldo
         if "saldo" in resto.lower() or "anterior" in resto.lower() or "salto" in resto.lower():
           saldo = val_encontrado
         else:
